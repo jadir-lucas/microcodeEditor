@@ -1,0 +1,73 @@
+{
+  "rom": {
+    "address_bits": 12,
+    "word_size": 32
+  },
+
+  "reserved": [
+  ],
+
+  "action": {
+    "bits": [0, 3],
+    "Values": {
+      "NEXT": 0,
+      "BEGIN": 1,
+      "DISPATCH": 2,
+      "GOTO": 3,
+      "ifCgt": 4,
+      "ifZgt": 5,
+      "ifNgt": 6,
+      "ifVgt": 7
+    }
+  },
+
+  "signals": {
+    "Rwr": {
+      "bits": [23, 24],
+      "values": {
+        "NoWrite": 0,
+        "8write": 1,
+        "16inc": 2,
+        "16dec": 3
+      }
+    },
+
+    "Fwr": { "bit": 25 },
+    "Mwr": { "bit": 26 },
+    "Mrd": { "bit": 27 },
+    "Fetch": { "bit": 28 },
+    "MDRwr": { "bit": 29 },
+
+    "Asel": {
+      "bits": [8, 11],
+      "values": {
+        "A":0,"F":1,"B":2,"C":3,"D":4,"E":5,"H":6,"L":7,
+        "W":8,"Z":9,"PCH":10,"PCL":11,"SPH":12,"SPL":13
+      }
+    },
+
+    "Bsel": { "bits": [12, 15], "values": "@Asel" },
+    "Csel": { "bits": [16, 19], "values": "@Asel" },
+
+    "ALUop": {
+      "bits": [4, 7],
+      "values": {
+        "ADD":0,"SUB":1,"ADC":2,"SBC":3,"INC":4,"DEC":5,
+        "AND":6,"OR":7,"XOR":8,"NOT":9,"SRA":10,"SLL":11,
+        "SRL":12,"COPY":13
+      }
+    },
+
+    "R16sel": {
+      "bits": [20, 22],
+      "values": {
+        "AF":0,"BC":1,"DE":2,"HL":3,"WZ":4,"PC":5,"SP":6
+      }
+    }
+  },
+
+  "next_address": {
+    "bits": [4, 15],
+    "overlaped": true
+  }
+}
