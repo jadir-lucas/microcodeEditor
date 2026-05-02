@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Microcode Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0f1117;
+    --surface:   #161b27;
+    --surface2:  #1e2636;
+    --border:    #2a3347;
+    --border2:   #3a4560;
+    --accent:    #4f8ef7;
+    --accent2:   #7eb3ff;
+    --accent-bg: rgba(79,142,247,.10);
+    --accent-bg2:rgba(79,142,247,.18);
+    --text:      #d4ddf5;
+    --text-dim:  #6b7a9e;
+    --text-faint:#3d4f72;
+    --danger:    #f76f6f;
+    --success:   #4fcea2;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+    --radius: 6px;
+    --row-h: 38px;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+  }
+
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── HEADER ────────────────────── */
+  header {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 18px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 8px rgba(0,0,0,.4);
+  }
+
+  .logo-mark {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .logo-chip {
+    width: 28px; height: 28px;
+    background: var(--accent);
+    border-radius: 5px;
+    display: grid;
+    place-items: center;
+  }
+  .logo-chip svg { width: 14px; height: 14px; fill: #fff; }
+
+  h1 {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: .04em;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  h1 span { color: var(--accent); }
+
+  .spacer { flex: 1; }
+
+  .toolbar { display: flex; gap: 8px; align-items: center; }
+
+  /* file label button */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 13px;
+    height: 32px;
+    border-radius: var(--radius);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: background .15s, opacity .15s;
+    white-space: nowrap;
+  }
+  .btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+  .btn:disabled { opacity: .35; cursor: not-allowed; }
+
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border2);
+    color: var(--accent);
+  }
+  .btn-ghost:hover:not(:disabled) { background: var(--accent-bg); border-color: var(--accent); }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) { background: #3a7be0; }
+
+  .btn-secondary {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .btn-secondary:hover:not(:disabled) { background: var(--border); color: var(--text); }
+
+  label.btn { cursor: pointer; }
+  label.btn input { display: none; }
+
+  /* ── MAIN ───────────────────────── */
+  main {
+    flex: 1;
+    overflow: auto;
+    min-height: 0;
+    position: relative;
+  }
+
+  /* empty state */
+  .empty-state {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    color: var(--text-dim);
+    text-align: center;
+    padding: 2rem;
+  }
+  .empty-state .icon {
+    width: 52px; height: 52px;
+    opacity: .25;
+  }
+  .empty-state p { font-size: 13px; line-height: 1.6; max-width: 300px; }
+  .empty-state strong { color: var(--accent2); }
+
+  /* ── TABLE ──────────────────────── */
+  .table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: auto;
+    height: 100%;
+  }
+
+  table {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: max-content;
+    min-width: 100%;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  thead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  thead th {
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border2);
+    border-right: 1px solid var(--border);
+    padding: 0 10px;
+    height: var(--row-h);
+    text-align: left;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    white-space: nowrap;
+    user-select: none;
+  }
+  thead th:last-child { border-right: none; }
+
+  /* row index col */
+  thead th.col-idx,
+  tbody td.col-idx {
+    width: 42px;
+    min-width: 42px;
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 10px;
+    background: var(--surface);
+    border-right: 1px solid var(--border2) !important;
+  }
+
+  tbody tr {
+    background: var(--bg);
+    transition: background .1s;
+  }
+  tbody tr:nth-child(even) { background: rgba(22,27,39,.6); }
+  tbody tr:hover { background: var(--accent-bg); }
+
+  tbody td {
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    padding: 3px 6px;
+    height: var(--row-h);
+    vertical-align: middle;
+    min-width: 120px;
+  }
+  tbody td:last-child { border-right: none; }
+  tbody td.col-idx { min-width: 42px; }
+
+  /* ── CONTROLS ────────────────────── */
+  select, input[type="text"] {
+    width: 100%;
+    height: 28px;
+    padding: 0 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    transition: border-color .12s, background .12s;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7a9e'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 24px;
+  }
+  input[type="text"] {
+    background-image: none;
+    padding-right: 8px;
+    cursor: text;
+  }
+  select:focus, input[type="text"]:focus {
+    border-color: var(--accent);
+    background: var(--accent-bg);
+  }
+  select option { background: var(--surface2); }
+
+  /* editable combo: text over select */
+  .combo-wrap {
+    position: relative;
+    width: 100%;
+  }
+  .combo-wrap input[type="text"] {
+    position: absolute; inset: 0;
+    background: transparent;
+    border: none;
+    z-index: 2;
+    padding: 0 28px 0 8px;
+    pointer-events: none;
+    display: none; /* shown only when focused */
+  }
+  .combo-wrap select { display: block; }
+
+  /* checkbox */
+  .cb-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  input[type="checkbox"] {
+    width: 16px; height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+
+  /* ── FOOTER ─────────────────────── */
+  footer {
+    flex-shrink: 0;
+    padding: 7px 18px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-faint);
+    text-align: center;
+    letter-spacing: .01em;
+    font-family: var(--mono);
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  /* ── ROW DELETE BTN ──────────────── */
+  .btn-del {
+    width: 22px; height: 22px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: background .12s, color .12s;
+  }
+  .btn-del:hover { background: rgba(247,111,111,.15); color: var(--danger); }
+  .btn-del svg { width: 12px; height: 12px; }
+
+  /* ── SCROLLBAR ───────────────────── */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+  /* ── TOOLTIP on header ───────────── */
+  thead th[title] { cursor: help; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo-mark">
+      <div class="logo-chip">
+        <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+          <rect x="1" y="3" width="14" height="10" rx="2" fill="none" stroke="#fff" stroke-width="1.4"/>
+          <rect x="4" y="6" width="2" height="2" rx=".4"/>
+          <rect x="7" y="6" width="2" height="2" rx=".4"/>
+          <rect x="10" y="6" width="2" height="2" rx=".4"/>
+          <rect x="4" y="9" width="2" height="2" rx=".4"/>
+          <rect x="7" y="9" width="2" height="2" rx=".4"/>
+          <rect x="10" y="9" width="2" height="2" rx=".4"/>
+        </svg>
+      </div>
+      <h1>Micro<span>code</span> Editor</h1>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="toolbar">
+      <label class="btn btn-ghost" title="Carregar arquivo JSON de configuração">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.75.75 0 0 1 .75.75v6.19l1.97-1.97a.75.75 0 1 1 1.06 1.06L8.53 10.28a.75.75 0 0 1-1.06 0L4.22 7.03a.75.75 0 0 1 1.06-1.06L7.25 7.94V1.75A.75.75 0 0 1 8 1zM2 13.25a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75z"/></svg>
+        Carregar JSON
+        <input type="file" accept=".json" id="file-input" />
+      </label>
+
+      <button class="btn btn-primary" id="btn-add" disabled title="Adicionar nova linha">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.75.75 0 0 1 .75.75v5.5h5.5a.75.75 0 0 1 0 1.5h-5.5v5.5a.75.75 0 0 1-1.5 0v-5.5H1.75a.75.75 0 0 1 0-1.5h5.5v-5.5A.75.75 0 0 1 8 1z"/></svg>
+        Add Row
+      </button>
+
+      <button class="btn btn-secondary" id="btn-export" disabled title="Exportar como microcode.json">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14zm5.47-9.97a.75.75 0 0 1 1.06 0l3.5 3.5a.75.75 0 0 1-1.06 1.06L8.75 5.56V11.25a.75.75 0 0 1-1.5 0V5.56L4.28 8.59a.75.75 0 0 1-1.06-1.06z"/></svg>
+        Export JSON
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN -->
+  <main id="main-area">
+    <div class="empty-state" id="empty-no-config">
+      <svg class="icon" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="8" y="14" width="48" height="36" rx="4" stroke="currentColor" stroke-width="2.5"/>
+        <path d="M20 26h24M20 32h16M20 38h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M44 8v12M38 11l6-3 6 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <p>Carregue um arquivo <strong>JSON de configuração</strong> para começar.</p>
+    </div>
+
+    <div class="empty-state" id="empty-no-rows" style="display:none">
+      <svg class="icon" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="8" y="12" width="48" height="40" rx="3" stroke="currentColor" stroke-width="2.5"/>
+        <line x1="8" y1="22" x2="56" y2="22" stroke="currentColor" stroke-width="2"/>
+        <line x1="8" y1="32" x2="56" y2="32" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <line x1="8" y1="42" x2="56" y2="42" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3"/>
+        <line x1="26" y1="12" x2="26" y2="52" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="42" y1="12" x2="42" y2="52" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      <p>Nenhuma instrução ainda. Clique em <strong>Add Row</strong> para adicionar.</p>
+    </div>
+
+    <div class="table-wrapper" id="table-wrapper" style="display:none">
+      <table id="microcode-table">
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </main>
+
+  <!-- FOOTER -->
+  <footer>
+    © 2026 Jadir Eduardo Souza Lucas — Universidade Federal do Espírito Santo (UFES) &nbsp;|&nbsp;
+    <a href="mailto:jadir.lucas@ufes.br">jadir.lucas@ufes.br</a> &nbsp;|&nbsp; Telegram: @profjadirlucas
+  </footer>
+</div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────
+let config    = null;
+let microcode = [];  // array of Row objects
+
+// ── DOM REFS ──────────────────────────────────────────
+const fileInput      = document.getElementById('file-input');
+const btnAdd         = document.getElementById('btn-add');
+const btnExport      = document.getElementById('btn-export');
+const emptyNoConfig  = document.getElementById('empty-no-config');
+const emptyNoRows    = document.getElementById('empty-no-rows');
+const tableWrapper   = document.getElementById('table-wrapper');
+const thead          = document.getElementById('thead');
+const tbody          = document.getElementById('tbody');
+
+// ── HELPERS ────────────────────────────────────────────
+const getLabels = () =>
+  microcode
+    .map(r => r.label)
+    .filter(l => l && l.trim().length > 0);
+
+const resolveValues = (def) => {
+  if (def.values === '@Asel') {
+    return config?.signals?.['Asel']?.values ?? {};
+  }
+  return def.values ?? {};
+};
+
+const showNextField = (row) => {
+  if (!config?.action) return false;
+  const values = config.action.Values;
+  const entry = Object.entries(values).find(([, v]) => v === row.action);
+  if (!entry) return false;
+  const name = entry[0];
+  return name === 'GOTO' || name.startsWith('if');
+};
+
+// ── VISIBILITY ─────────────────────────────────────────
+const render = () => {
+  const hasConfig = config !== null;
+  const hasRows   = microcode.length > 0;
+
+  emptyNoConfig.style.display = hasConfig          ? 'none'  : 'flex';
+  emptyNoRows.style.display   = (hasConfig && !hasRows) ? 'flex'  : 'none';
+  tableWrapper.style.display  = (hasConfig && hasRows)  ? 'block' : 'none';
+
+  btnAdd.disabled    = !hasConfig;
+  btnExport.disabled = !hasConfig;
+
+  if (hasConfig && hasRows) renderTable();
+};
+
+// ── TABLE RENDER ───────────────────────────────────────
+const renderTable = () => {
+  renderHeader();
+  renderBody();
+};
+
+const renderHeader = () => {
+  const tr = document.createElement('tr');
+
+  const addTh = (text, minWidth, title = '') => {
+    const th = document.createElement('th');
+    th.textContent = text;
+    if (minWidth) th.style.minWidth = minWidth;
+    if (title) th.title = title;
+    tr.appendChild(th);
+  };
+
+  addTh('#', null);  // index
+  tr.firstChild?.classList.add('col-idx');
+  const idx = tr.children[0];
+  idx.classList.add('col-idx');
+
+  addTh('Label', '140px');
+  if (config.action)       addTh('Action', '160px');
+  if (config.next_address) addTh('Next', '140px');
+
+  for (const sig of Object.keys(config.signals)) {
+    addTh(sig, '120px', `Signal: ${sig}`);
+  }
+  addTh('', '42px'); // delete col
+
+  thead.innerHTML = '';
+  thead.appendChild(tr);
+};
+
+const renderBody = () => {
+  tbody.innerHTML = '';
+  microcode.forEach((row, i) => {
+    const tr = buildRow(row, i);
+    tbody.appendChild(tr);
+  });
+};
+
+const buildRow = (row, i) => {
+  const tr = document.createElement('tr');
+
+  // ── index cell
+  const tdIdx = td('col-idx');
+  tdIdx.textContent = i;
+  tr.appendChild(tdIdx);
+
+  // ── LABEL: editable combobox (text input + datalist)
+  const tdLabel = td();
+  tdLabel.style.minWidth = '140px';
+  const labelInput = mkCombo(
+    row.label ?? '',
+    getLabels(),
+    (val) => { row.label = val; refreshNextSelects(); }
+  );
+  tdLabel.appendChild(labelInput);
+  tr.appendChild(tdLabel);
+
+  // ── ACTION
+  if (config.action) {
+    const tdAction = td();
+    tdAction.style.minWidth = '160px';
+    const options = Object.entries(config.action.Values)
+      .map(([k, v]) => ({ label: k, value: v }));
+    const sel = mkSelect(options, row.action ?? '', (val) => {
+      row.action = val === '' ? undefined : Number(val);
+      // re-render next cell visibility
+      renderBody();
+    });
+    tdAction.appendChild(sel);
+    tr.appendChild(tdAction);
+  }
+
+  // ── NEXT
+  if (config.next_address) {
+    const tdNext = td();
+    tdNext.style.minWidth = '140px';
+    if (showNextField(row)) {
+      const combo = mkCombo(
+        row.next ?? '',
+        getLabels(),
+        (val) => { row.next = val; }
+      );
+      tdNext.appendChild(combo);
+    }
+    tr.appendChild(tdNext);
+  }
+
+  // ── SIGNALS
+  for (const [sig, def] of Object.entries(config.signals)) {
+    const tdSig = td();
+    tdSig.style.minWidth = '120px';
+
+    if (def.values) {
+      const vals = resolveValues(def);
+      const options = Object.entries(vals).map(([k, v]) => ({ label: k, value: v }));
+      const current = row.signals[sig] ?? '';
+      const sel = mkSelect(options, current, (val) => {
+        row.signals[sig] = val === '' ? undefined : (isNaN(Number(val)) ? val : Number(val));
+      });
+      tdSig.appendChild(sel);
+    } else {
+      const wrap = document.createElement('div');
+      wrap.className = 'cb-wrap';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = !!row.signals[sig];
+      cb.addEventListener('change', () => { row.signals[sig] = cb.checked; });
+      wrap.appendChild(cb);
+      tdSig.appendChild(wrap);
+    }
+
+    tr.appendChild(tdSig);
+  }
+
+  // ── DELETE BUTTON
+  const tdDel = td();
+  tdDel.style.minWidth = '42px';
+  tdDel.style.textAlign = 'center';
+  const delBtn = document.createElement('button');
+  delBtn.className = 'btn-del';
+  delBtn.title = 'Remover linha';
+  delBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 3V2.25h4.5V3h3a.75.75 0 0 1 0 1.5h-.5l-.9 8.1a1.75 1.75 0 0 1-1.74 1.65H5.89a1.75 1.75 0 0 1-1.74-1.65L3.25 4.5h-.5a.75.75 0 0 1 0-1.5zm1.5 0h1.5V2.25H7.25V3zm-1 2.5a.5.5 0 0 0-.498.55l.5 5a.5.5 0 0 0 .996-.1l-.5-5a.5.5 0 0 0-.498-.45zm3.5 0a.5.5 0 0 0-.498.45l-.5 5a.5.5 0 0 0 .996.1l.5-5A.5.5 0 0 0 9.75 5.5z"/></svg>`;
+  delBtn.addEventListener('click', () => {
+    microcode.splice(i, 1);
+    render();
+  });
+  tdDel.appendChild(delBtn);
+  tr.appendChild(tdDel);
+
+  return tr;
+};
+
+// force refresh of next-address combos after a label changes
+const refreshNextSelects = () => renderBody();
+
+// ── ELEMENT HELPERS ────────────────────────────────────
+const td = (cls = '') => {
+  const el = document.createElement('td');
+  if (cls) el.className = cls;
+  return el;
+};
+
+const mkSelect = (options, currentValue, onChange) => {
+  const sel = document.createElement('select');
+
+  // blank option
+  const blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = '—';
+  sel.appendChild(blank);
+
+  for (const opt of options) {
+    const o = document.createElement('option');
+    o.value = opt.value;
+    o.textContent = opt.label;
+    if (String(opt.value) === String(currentValue)) o.selected = true;
+    sel.appendChild(o);
+  }
+
+  sel.addEventListener('change', () => onChange(sel.value));
+  return sel;
+};
+
+const mkCombo = (currentValue, suggestions, onChange) => {
+  // native datalist combo
+  const uid = 'dl_' + Math.random().toString(36).slice(2);
+  const dl = document.createElement('datalist');
+  dl.id = uid;
+
+  const refreshDl = () => {
+    dl.innerHTML = '';
+    for (const s of getLabels()) {
+      const opt = document.createElement('option');
+      opt.value = s;
+      dl.appendChild(opt);
+    }
+  };
+  refreshDl();
+
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.value = currentValue;
+  inp.setAttribute('list', uid);
+  inp.style.width = '100%';
+
+  inp.addEventListener('input', () => {
+    refreshDl();
+    onChange(inp.value);
+  });
+  inp.addEventListener('change', () => onChange(inp.value));
+
+  const wrap = document.createElement('div');
+  wrap.style.position = 'relative';
+  wrap.appendChild(dl);
+  wrap.appendChild(inp);
+  return wrap;
+};
+
+// ── LOAD JSON ──────────────────────────────────────────
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      config    = JSON.parse(ev.target.result);
+      microcode = [];
+      render();
+    } catch {
+      alert('Erro ao ler JSON: arquivo inválido ou malformado.');
+    }
+  };
+  reader.readAsText(file);
+  // allow re-loading same file
+  e.target.value = '';
+});
+
+// ── ADD ROW ────────────────────────────────────────────
+btnAdd.addEventListener('click', () => {
+  microcode.push({ label: '', action: undefined, next: undefined, signals: {} });
+  render();
+  // scroll to bottom
+  setTimeout(() => {
+    tableWrapper.scrollTop = tableWrapper.scrollHeight;
+  });
+});
+
+// ── EXPORT ─────────────────────────────────────────────
+btnExport.addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(microcode, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'microcode.json';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// ── INIT ───────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>

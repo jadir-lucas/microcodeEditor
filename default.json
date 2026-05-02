@@ -9,7 +9,7 @@
 
   "action": {
     "bits": [0, 3],
-    "Values": {
+    "values": {
       "NEXT": 0,
       "BEGIN": 1,
       "DISPATCH": 2,
