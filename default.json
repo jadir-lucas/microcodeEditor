@@ -7,6 +7,58 @@
   "reserved": [
   ],
 
+  
+  "opcode": {
+    "bits": [0, 7],
+    "mnemonics": [
+      {
+        "name": "NOP",
+        "value": "00100000",
+        "description": "No operation. The control unit will proceed to the next instruction in sequence."
+      },
+      {
+        "name": "LD",
+        "value": "00100xxx",
+        "description": "Load operation. The control unit will load a value into a register."
+      },
+      {
+        "name": "ALU",
+        "value": "00100010",
+        "description": "ALU operation. The control unit will perform an arithmetic or logical operation."
+      },
+      {
+        "name": "JMP",
+        "value": "00100011",
+        "description": "Jump operation. The control unit will jump to a specified address."
+      }
+    ]
+  },
+
+  "flag": [
+    {
+      "name": "C",
+      "bit": 0,
+      "description": "Carry flag. Set if an arithmetic operation results in a carry out of the most significant bit."
+    },
+    {
+      "name": "Z",
+      "bit": 1,
+      "description": "Zero flag. Set if the result of an operation is zero."
+    },
+
+    {
+      "name": "N",
+      "bit": 2,
+      "description": "Negative flag. Set if the result of an operation is negative (most significant bit is 1)."
+    },
+
+    {
+      "name": "V",
+      "bit": 3,
+      "description": "Overflow flag. Set if an arithmetic operation results in a signed overflow."
+    }
+  ],
+
   "action": {
     "bits": [0, 3],
     "values": {
@@ -14,10 +66,10 @@
       "BEGIN": 1,
       "DISPATCH": 2,
       "GOTO": 3,
-      "ifCgt": 4,
-      "ifZgt": 5,
-      "ifNgt": 6,
-      "ifVgt": 7
+      "ifCgoto": 4,
+      "ifZgoto": 5,
+      "ifNgoto": 6,
+      "ifVgoto": 7
     }
   },
 
@@ -29,25 +81,55 @@
         "8write": 1,
         "16inc": 2,
         "16dec": 3
-      }
+      },
+      "description": "Register write control. When set to 8write, the register selected by Csel will be written with the value from C internal bus. When set to 16inc/16dec, the 16-bit register selected by R16sel will be incremented/decremented after the memory operation."
     },
 
-    "Fwr": { "bit": 25 },
-    "Mwr": { "bit": 26 },
-    "Mrd": { "bit": 27 },
-    "Fetch": { "bit": 28 },
-    "MDRwr": { "bit": 29 },
+    "Fwr": { 
+      "bit": 25, 
+      "description": "Write to F register from ALU Flags output" 
+    },
+
+    "Mwr": { 
+      "bit": 26, 
+      "description": "Write to external RAM memory from MDR register." 
+    },
+
+    "Mrd": { 
+      "bit": 27, 
+      "description": "Read from external RAM memory." 
+    },
+
+    "Fetch": { 
+      "bit": 28, 
+      "description": "Fetch instruction from memory. Set OE external signal and register IR WE pin." 
+    },
+
+    "MDRwr": { 
+      "bit": 29, 
+      "description": "Write to MDR register from internal C or external (memory) buses." 
+    },
 
     "Asel": {
       "bits": [8, 11],
       "values": {
         "A":0,"F":1,"B":2,"C":3,"D":4,"E":5,"H":6,"L":7,
         "W":8,"Z":9,"PCH":10,"PCL":11,"SPH":12,"SPL":13
-      }
+      },
+      "description": "Select register for ALU input A, used as the source for the ALU operations."
     },
 
-    "Bsel": { "bits": [12, 15], "values": "@Asel" },
-    "Csel": { "bits": [16, 19], "values": "@Asel" },
+    "Bsel": { 
+      "bits": [12, 15], 
+      "values": "@Asel", 
+      "description": "Select register for ALU input B, used as the source for the ALU operations." 
+    },
+
+    "Csel": { 
+      "bits": [16, 19], 
+      "values": "@Asel", 
+      "description": "Select register to be written from C internal bus, originated from ALU or external (memory) bus." 
+    },
 
     "ALUop": {
       "bits": [4, 7],
@@ -55,14 +137,16 @@
         "ADD":0,"SUB":1,"ADC":2,"SBC":3,"INC":4,"DEC":5,
         "AND":6,"OR":7,"XOR":8,"NOT":9,"SRA":10,"SLL":11,
         "SRL":12,"COPY":13
-      }
+      },
+      "description": "ALU operation to perform. When Rwr=16inc/16dec, the ALU will perform the specified operation between input registers selected by Asel and Bsel."
     },
 
     "R16sel": {
       "bits": [20, 22],
       "values": {
         "AF":0,"BC":1,"DE":2,"HL":3,"WZ":4,"PC":5,"SP":6
-      }
+      },
+      "description": "Select 16-bit register for memory address read/write operations and inc/dec operations. When used with Rwr=16inc/16dec, the selected register will be incremented/decremented after the memory operation."
     }
   },
 
