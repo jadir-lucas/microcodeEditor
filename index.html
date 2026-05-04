@@ -3,704 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<link rel="stylesheet" href="mais.css">
+<link rel="stylesheet" href="main.css">
 <title>Microcode Editor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  :root, [data-theme="dark"] {
-    --bg:         #0f1117;
-    --surface:    #161b27;
-    --surface2:   #1e2636;
-    --border:     #2a3347;
-    --border2:    #3a4560;
-    --accent:     #4f8ef7;
-    --accent2:    #7eb3ff;
-    --accent-bg:  rgba(79,142,247,.10);
-    --text:       #d4ddf5;
-    --text-dim:   #6b7a9e;
-    --text-faint: #3d4f72;
-    --danger:     #f76f6f;
-    --shadow:     rgba(0,0,0,.45);
-    --row-even:   rgba(22,27,39,.55);
-    --row-hover:  rgba(79,142,247,.08);
-    --cb-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b7a9e'/%3E%3C/svg%3E");
-    --opt-bg: #1e2636;
-  }
-
-  [data-theme="light"] {
-    --bg:         #f0f2f8;
-    --surface:    #ffffff;
-    --surface2:   #f4f6fb;
-    --border:     #d5dae8;
-    --border2:    #b8c0d8;
-    --accent:     #2d6fe0;
-    --accent2:    #1a5cc4;
-    --accent-bg:  rgba(45,111,224,.08);
-    --text:       #1a1f36;
-    --text-dim:   #5a6482;
-    --text-faint: #9aa3be;
-    --danger:     #d94f4f;
-    --shadow:     rgba(0,0,0,.10);
-    --row-even:   rgba(220,226,240,.45);
-    --row-hover:  rgba(45,111,224,.06);
-    --cb-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%235a6482'/%3E%3C/svg%3E");
-    --opt-bg: #f4f6fb;
-  }
-
-  :root {
-    --mono: 'JetBrains Mono', monospace;
-    --sans: 'DM Sans', sans-serif;
-    --radius: 6px;
-    --row-h: 30px;
-  }
-
-  html, body { height: 100%; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    font-size: 13px;
-    transition: background .2s, color .2s;
-  }
-
-  #app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-  /* tab panels fill remaining height */
-  #app > .tab-panel { flex: 1; min-height: 0; }
-
-  /* HEADER & FOOTER — always dark */
-  header, footer {
-    --hf-bg:     #161b27;
-    --hf-border: #2a3347;
-    --hf-bord2:  #3a4560;
-    --hf-text:   #d4ddf5;
-    --hf-dim:    #6b7a9e;
-    --hf-faint:  #3d4f72;
-    --hf-accent: #4f8ef7;
-    --hf-surf2:  #1e2636;
-    --hf-shadow: rgba(0,0,0,.45);
-  }
-  header {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 18px;
-    background: var(--hf-bg);
-    border-bottom: 1px solid var(--hf-border);
-    box-shadow: 0 1px 8px var(--hf-shadow);
-  }
-  .logo-mark { display: flex; align-items: center; gap: 8px; }
-  .logo-chip {
-    width: 28px; height: 28px;
-    background: var(--accent);
-    border-radius: 5px;
-    display: grid; place-items: center; flex-shrink: 0;
-  }
-  .logo-chip svg { width: 14px; height: 14px; }
-  h1 {
-    font-family: var(--mono); font-size: 14px; font-weight: 700;
-    letter-spacing: .04em; color: var(--hf-text); white-space: nowrap;
-  }
-  h1 span { color: var(--hf-accent); }
-
-  .spacer { flex: 1; }
-  .divider { width: 1px; height: 22px; background: var(--hf-bord2); flex-shrink: 0; }
-  .toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-
-  /* BUTTONS */
-  .btn {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 0 12px; height: 30px; border-radius: var(--radius);
-    font-family: var(--sans); font-size: 12px; font-weight: 500;
-    cursor: pointer; border: none;
-    transition: background .14s, color .14s, opacity .14s, border-color .14s;
-    white-space: nowrap;
-  }
-  .btn svg { width: 13px; height: 13px; flex-shrink: 0; }
-  .btn:disabled { opacity: .32; cursor: not-allowed; pointer-events: none; }
-
-  /* Toolbar buttons always render over dark header — pin to dark vars */
-  .btn-ghost {
-    background: transparent; border: 1px solid var(--hf-bord2); color: var(--hf-accent);
-  }
-  .btn-ghost:hover { background: rgba(79,142,247,.12); border-color: var(--hf-accent); }
-
-  .btn-primary { background: #4f8ef7; color: #fff; border: 1px solid transparent; }
-  .btn-primary:hover { filter: brightness(1.12); }
-
-  .btn-secondary {
-    background: var(--hf-surf2); border: 1px solid var(--hf-border); color: var(--hf-dim);
-  }
-  .btn-secondary:hover { background: var(--hf-border); color: var(--hf-text); }
-
-  .btn-icon {
-    width: 30px; height: 30px; padding: 0;
-    display: grid; place-items: center;
-    background: var(--hf-surf2); border: 1px solid var(--hf-border);
-    color: var(--hf-dim); border-radius: var(--radius);
-    cursor: pointer; transition: background .14s, color .14s;
-  }
-  .btn-icon:hover { background: var(--hf-border); color: var(--hf-text); }
-  .btn-icon svg { width: 15px; height: 15px; }
-
-  label.btn { cursor: pointer; }
-  label.btn input { display: none; }
-
-  /* MAIN */
-  main { flex: 1; overflow: auto; min-height: 0; position: relative; }
-
-  .empty-state {
-    height: 100%; display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 14px; color: var(--text-dim); text-align: center; padding: 2rem;
-  }
-  .empty-state .icon { width: 52px; height: 52px; opacity: .2; }
-  .empty-state p { font-size: 13px; line-height: 1.65; max-width: 300px; }
-  .empty-state strong { color: var(--accent); font-weight: 600; }
-
-  /* TABLE */
-  .table-wrapper { width: 100%; overflow-x: auto; overflow-y: auto; height: 100%; }
-
-  table {
-    border-collapse: separate; border-spacing: 0;
-    width: max-content; min-width: 100%;
-    font-family: var(--mono); font-size: 12px;
-  }
-
-  thead { position: sticky; top: 0; z-index: 10; }
-  thead th {
-    /* background: var(--surface2); */
-    border-bottom: 1px solid var(--border2);
-    padding: 0 8px; height: var(--row-h); text-align: center;
-    font-size: 10px; font-weight: 700; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--accent);
-    white-space: nowrap; user-select: none; transition: background .2s;
-  }
-  thead th:last-child { border-right: none; }
-
-  thead th.col-idx, tbody td.col-idx {
-    width: 42px; min-width: 42px; text-align: center;
-    color: var(--text-faint); font-size: 10px;
-    background: var(--surface); border-right: 1px solid var(--border2) !important;
-    transition: background .2s;
-  }
-
-  tbody tr { background: var(--surface); transition: background .08s; }
-  tbody tr:nth-child(even) { background: var(--surface); }
-  tbody tr:hover { background: var(--row-hover); }
-
-  tbody td {
-
-    padding: 2px 6px; height: var(--row-h); vertical-align: middle;
-    min-width: 120px; transition: border-color .2s;
-  }
-  tbody td:last-child { border-right: none; }
-  tbody td.col-idx { min-width: 42px; }
-
-  /* FORM CONTROLS */
-  select, input[type="text"] {
-    width: 100%; height: 28px; padding: 0 24px 0 8px;
-    background: var(--surface2); border: 1px solid var(--border);
-    border-radius: 4px; color: var(--text);
-    font-family: var(--mono); font-size: 11px;
-    outline: none; appearance: none; -webkit-appearance: none;
-    cursor: pointer;
-    transition: border-color .12s, background .12s;
-    background-image: var(--cb-arrow);
-    background-repeat: no-repeat; background-position: right 8px center;
-  }
-  input[type="text"] {
-    background-image: none; padding-right: 8px; cursor: text;
-    color: var(--text);
-  }
-  select:focus, input[type="text"]:focus {
-    border-color: var(--accent); background-color: var(--accent-bg);
-  }
-  select option { background: var(--opt-bg); color: var(--text); }
-
-  /* Custom checkbox — theme-aware */
-  .cb-wrap { display: flex; align-items: center; justify-content: center; }
-  .cb-wrap input[type="checkbox"] { display: none; }
-  .cb-box {
-    width: 18px; height: 18px;
-    border: 2px solid var(--border2);
-    border-radius: 4px;
-    background: var(--surface2);
-    display: grid; place-items: center;
-    cursor: pointer;
-    transition: background .12s, border-color .12s;
-    flex-shrink: 0;
-  }
-  .cb-box svg { width: 11px; height: 11px; opacity: 0; transition: opacity .1s; }
-  .cb-box.checked {
-    background: var(--accent);
-    border-color: var(--accent);
-  }
-  .cb-box.checked svg { opacity: 1; }
-
-  /* Custom autocomplete combo */
-  .combo-wrap { position: relative; width: 100%; }
-  .combo-wrap input[type="text"] { width: 100%; }
-
-  .combo-dropdown {
-    position: fixed;
-    z-index: 9999;
-    border: 1px solid var(--border2);
-    border-radius: 0 0 4px 4px;
-    background: var(--surface2);
-    box-shadow: 0 6px 18px rgba(0,0,0,.35);
-    max-height: 180px;
-    overflow-y: auto;
-    display: none;
-  }
-  /* Always dark when in dark theme */
-  [data-theme="dark"] .combo-dropdown {
-    background: #1e2636;
-    border-color: #3a4560;
-  }
-  [data-theme="light"] .combo-dropdown {
-    background: #f4f6fb;
-    border-color: #b8c0d8;
-  }
-
-  .combo-item {
-    padding: 5px 10px;
-    font-family: var(--mono);
-    font-size: 11px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  [data-theme="dark"] .combo-item { color: #d4ddf5; }
-  [data-theme="light"] .combo-item { color: #1a1f36; }
-
-  .combo-item:hover, .combo-item.active {
-    background: var(--accent);
-    color: #fff;
-  }
-  [data-theme="dark"] .combo-item:hover,
-  [data-theme="dark"] .combo-item.active { background: #4f8ef7; color: #fff; }
-  [data-theme="light"] .combo-item:hover,
-  [data-theme="light"] .combo-item.active { background: #2d6fe0; color: #fff; }
-
-  /* SCROLLBAR inside dropdown */
-  .combo-dropdown::-webkit-scrollbar { width: 5px; }
-  .combo-dropdown::-webkit-scrollbar-track { background: transparent; }
-  .combo-dropdown::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
-
-  /* DELETE ROW BTN */
-  .btn-del {
-    width: 22px; height: 22px; border-radius: 4px; border: none;
-    background: transparent; color: var(--text-faint);
-    cursor: pointer; display: grid; place-items: center;
-    transition: background .12s, color .12s;
-  }
-  .btn-del:hover { background: rgba(247,111,111,.14); color: var(--danger); }
-  .btn-del svg { width: 16px; height: 16px; }
-
-  /* FOOTER */
-  footer {
-    flex-shrink: 0; padding: 7px 18px;
-    background: var(--hf-bg); border-top: 1px solid var(--hf-border);
-    font-size: 11px; color: #8a96b8; text-align: center;
-    letter-spacing: .01em; font-family: var(--mono);
-  }
-  footer a { color: var(--hf-accent); text-decoration: none; }
-  footer a:hover { text-decoration: underline; }
-
-  /* Arch filename input */
-  .arch-filename {
-    font-family: var(--mono);
-    font-size: 12px;
-    height: 30px;
-    padding: 0 8px;
-    background: rgba(255,255,255,.07);
-    border: 1px solid rgba(255,255,255,.15);
-    border-radius: var(--radius);
-    color: var(--hf-text);
-    outline: none;
-    width: 180px;
-    transition: border-color .14s, background .14s;
-  }
-  .arch-filename:focus { border-color: var(--hf-accent); background: rgba(79,142,247,.12); }
-
-  /* Architecture toolbar */
-  .arch-toolbar {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 10px 18px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    transition: background .2s, border-color .2s;
-  }
-
-  /* TABS */
-  .tabs-bar {
-    flex-shrink: 0;
-    display: flex;
-    align-items: flex-end;
-    gap: 2px;
-    padding: 0 18px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-  }
-  .tab {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 16px;
-    height: 36px;
-    font-family: var(--sans);
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-dim);
-    border: 1px solid transparent;
-    border-bottom: none;
-    border-radius: 6px 6px 0 0;
-    cursor: pointer;
-    background: transparent;
-    transition: color .14s, background .14s;
-    position: relative;
-    bottom: -1px;
-    user-select: none;
-  }
-  .tab svg { width: 13px; height: 13px; flex-shrink: 0; opacity: .7; }
-  .tab:hover:not(.active) { color: var(--text); background: var(--accent-bg); }
-  .tab.active {
-    color: var(--accent);
-    background: var(--bg);
-    border-color: var(--border);
-    border-bottom-color: var(--bg);
-  }
-  .tab.active svg { opacity: 1; }
-
-  .tab-panel { display: none; flex: 1; overflow: auto; min-height: 0; }
-  .tab-panel.active { display: flex; flex-direction: column; }
-
-  /* empty tab content */
-  .tab-empty {
-    flex: 1;
-    display: flex; flex-direction: column;
-    position: relative;
-    align-items: center; justify-content: center;
-    gap: 12px;
-    color: var(--text-dim);
-    text-align: center; padding: 2rem;
-  }
-  .tab-empty .icon { width: 48px; height: 48px; opacity: .18; }
-  .tab-empty p { font-size: 13px; line-height: 1.6; max-width: 280px; }
-  .tab-empty strong { color: var(--accent); font-weight: 600; }
-
-
-  /* ── ARCHITECTURE EDITOR ────────────────────────── */
-  .arch-content {
-    display: none; flex: 1; overflow: auto; min-height: 0;
-    padding: 16px; gap: 16px; flex-direction: column;
-  }
-  .arch-content.visible { display: flex; }
-
-  .arch-grid {
-    display: grid;
-    grid-template-columns: 300px 1fr;
-    gap: 16px;
-    align-items: start;
-  }
-  .arch-left { display: flex; flex-direction: column; gap: 16px; }
-  @media (max-width: 760px) { .arch-grid { grid-template-columns: 1fr; } }
-
-  /* Cards */
-  .acard {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
-    transition: background .2s, border-color .2s;
-  }
-  .acard h3 {
-    margin: 0 0 10px;
-    font-size: 10px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .08em;
-    color: var(--accent);
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 6px;
-    font-family: var(--sans);
-  }
-
-  /* ROM grid */
-  .rom-grid {
-    display: grid; grid-template-columns: 120px auto;
-    gap: 5px 12px; align-items: center;
-  }
-  .rom-grid label { font-size: 12px; color: var(--text-dim); font-family: var(--sans); }
-  .rom-grid input { width: 70px; }
-
-  .rom-subheader {
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: .06em; color: var(--text-dim);
-    border-bottom: 1px solid var(--border);
-    padding-bottom: 3px; margin: 10px 0 7px;
-    font-family: var(--sans);
-  }
-
-  /* Architecture form inputs */
-  .acard input[type="number"],
-  .acard input[type="text"],
-  .acard input[type="checkbox"],
-  .arch-signal input[type="text"],
-  .arch-signal input[type="number"] {
-    background: var(--surface2) !important;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    color: var(--text) !important;
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 3px 7px;
-    height: 26px;
-    outline: none;
-    transition: border-color .12s, background .2s;
-    box-sizing: border-box;
-  }
-  .acard input[type="number"]:focus,
-  .acard input[type="text"]:focus {
-    border-color: var(--accent);
-  }
-  .acard input[type="checkbox"] {
-    width: 15px; height: 15px; padding: 0;
-    accent-color: var(--accent); cursor: pointer;
-  }
-
-  /* Column headers */
-  .arch-col-header {
-    display: grid; align-items: center; gap: 4px; padding: 2px 2px 4px;
-    font-size: 10px; font-weight: 700; color: var(--text-dim);
-    border-bottom: 1px solid var(--border); margin-bottom: 4px;
-    text-transform: uppercase; letter-spacing: .05em;
-    font-family: var(--sans);
-  }
-  .action-header-cols { grid-template-columns: 130px 90px 26px; }
-  .signal-header-cols { grid-template-columns: 110px 60px 50px 1fr 26px; }
-
-  /* Action rows */
-  .arch-action-row {
-    display: grid; grid-template-columns: 130px 90px 26px;
-    align-items: center; gap: 4px; padding: 2px 0;
-  }
-  .arch-action-row .actionName {
-    font-family: var(--mono); font-size: 12px;
-    color: var(--text); padding: 2px 4px;
-  }
-  .arch-action-row input.actionValue {
-    width: 100%;
-  }
-
-  /* Signal rows */
-  .arch-signal {
-    display: grid;
-    grid-template-columns: 110px 60px 50px 1fr 26px;
-    align-items: center; gap: 4px; padding: 2px 0;
-    row-gap: 0;
-  }
-  .arch-signal .values-toggle {
-    font-size: 11px; padding: 2px 6px; cursor: pointer;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    text-align: left; width: 100%; min-height: 26px;
-    border: 1px solid var(--border); border-radius: 4px;
-    background: var(--surface2); color: var(--text);
-    font-family: var(--mono);
-    transition: border-color .12s;
-  }
-  .arch-signal .values-toggle:hover { border-color: var(--accent); }
-
-  /* Mini delete button */
-  /* arch-del-btn — same visual shape as btn-del */
-  .arch-del-btn {
-    width: 22px; height: 22px; border-radius: 4px; border: none;
-    background: transparent; color: var(--text-faint);
-    cursor: pointer; display: grid; place-items: center;
-    transition: background .12s, color .12s;
-    padding: 0; margin: 0;
-  }
-  .arch-del-btn svg { width: 16px; height: 16px; }
-  .arch-del-btn:hover { background: rgba(247,111,111,.14); color: var(--danger); }
-
-  /* Add/check buttons */
-  .arch-action-add {
-    display: flex; align-items: center; gap: 6px;
-    flex-wrap: wrap; margin-top: 8px;
-  }
-  .arch-action-add select {
-    font-family: var(--mono); font-size: 11px;
-    padding: 3px 6px; border-radius: 4px;
-    border: 1px solid var(--border);
-    background: var(--surface2); color: var(--text);
-    height: 28px; outline: none; cursor: pointer;
-    appearance: none;
-  }
-  .arch-action-add select:focus { border-color: var(--accent); }
-  .arch-action-add select option { background: var(--opt-bg); }
-
-  .arch-btn {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 0 10px; height: 28px; border-radius: 4px;
-    font-size: 11px; font-weight: 500; cursor: pointer;
-    border: 1px solid var(--border);
-    background: var(--surface2); color: var(--text-dim);
-    font-family: var(--sans);
-    transition: background .12s, color .12s, border-color .12s;
-  }
-  .arch-btn:hover { background: var(--border); color: var(--text); }
-
-  /* Values panel */
-  .arch-values-panel {
-    display: none;
-    grid-column: 1 / -1;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 5px;
-    padding: 8px 10px; margin: 3px 0 2px;
-  }
-  .arch-values-panel.open { display: block; }
-  .arch-values-panel-hdr {
-    display: grid; grid-template-columns: 120px 70px 26px;
-    gap: 4px; font-size: 10px; font-weight: 700;
-    color: var(--text-dim); text-transform: uppercase;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 4px; padding-bottom: 3px;
-    font-family: var(--sans);
-  }
-  .arch-value-row {
-    display: grid; grid-template-columns: 120px 70px 26px;
-    align-items: center; gap: 4px; padding: 2px 0;
-  }
-  .arch-value-row input { width: 100%; }
-  .arch-values-panel-err {
-    display: none; margin-top: 4px; padding: 4px 8px;
-    border-radius: 4px; font-size: 11px;
-    background: rgba(247,111,111,.15); color: var(--danger);
-    border: 1px solid var(--danger);
-  }
-
-  /* Conflict highlight */
-  .arch-signal-input {
-    background: var(--surface2) !important;
-    color: var(--text) !important;
-    box-shadow: none !important;
-  }
-  
-  .arch-signal input, .arch-values-panel input {
-    box-shadow: none !important;
-  }
-  .arch-signal.conflict .arch-signal-input {
-    background: rgba(247,111,111,.12) !important;
-    border-color: var(--danger);
-  }
-
-  /* Flat inline name input — used for signal name and flag name */
-  .arch-flag-name {
-    background: transparent !important;
-    border: none !important;
-    border-bottom: 1px solid var(--border) !important;
-    border-radius: 0 !important;
-    box-shadow: none !important;
-    color: var(--text) !important;
-    font-family: var(--mono);
-    font-size: 11px;
-    width: 100%;
-    height: 26px;
-    padding: 0 4px !important;
-    outline: none;
-    transition: border-color .12s;
-  }
-  .arch-flag-name:focus {
-    border-bottom-color: var(--accent) !important;
-    background: var(--accent-bg) !important;
-  }
-
-  /* Status messages */
-  .arch-status {
-    display: none; margin-top: 6px; padding: 6px 10px;
-    border-radius: 5px; font-size: 12px; font-family: var(--sans);
-  }
-  .arch-status.ok {
-    display: block;
-    background: rgba(79,206,162,.12); color: #4fcea2;
-    border: 1px solid rgba(79,206,162,.3);
-  }
-  .arch-status.err {
-    display: block;
-    background: rgba(247,111,111,.12); color: var(--danger);
-    border: 1px solid rgba(247,111,111,.3);
-  }
-
-  /* Diagram */
-  .arch-diagram-area {
-    position: relative; width: 100%;
-    min-height: 220px; overflow-x: auto;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 6px; margin-top: 10px;
-    transition: background .2s;
-  }
-  .arch-diagram-block {
-    position: absolute; border-radius: 6px;
-    color: #fff; display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    font-size: 11px; text-align: center; padding: 4px;
-    box-sizing: border-box; overflow: hidden;
-  }
-
-  /* Flags section */
-  .flags-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 6px;
-    margin-top: 4px;
-  }
-  .flag-row {
-    display: flex; align-items: center; gap: 6px;
-    background: var(--surface2);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 4px 8px;
-  }
-  .flag-row input[type="text"] {
-    flex: 1; min-width: 0;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    color: var(--text) !important;
-    font-family: var(--mono);
-    font-size: 11px;
-    padding: 0 !important;
-    height: auto !important;
-    outline: none;
-  }
-  .flag-row .flag-bit {
-    width: 32px;
-    text-align: center;
-    background: var(--surface) !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 3px;
-    box-shadow: none !important;
-  }
-
-  #signals-container, #actions-container {
-    border-bottom: 1px dashed var(--border);
-    margin-bottom: 6px;
-  }
-
-  /* SCROLLBAR */
-  ::-webkit-scrollbar { width: 7px; height: 7px; }
-  ::-webkit-scrollbar-track { background: var(--bg); }
-  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
-
-  thead th[title] { cursor: help; }
-</style>
 </head>
 <body>
 <div id="app">
@@ -1164,103 +470,103 @@ const renderHeader = () => {
 };
 
 const renderBody = () => {
-  tbody.innerHTML = '';
-  microcode.forEach((row, i) => tbody.appendChild(buildRow(row, i)));
+    tbody.innerHTML = '';
+    microcode.forEach((row, i) => tbody.appendChild(buildRow(row, i)));
 };
 
 const buildRow = (row, i) => {
-  const tr = document.createElement('tr');
+    const tr = document.createElement('tr');
 
-  const idxCell = td('col-idx');
-  idxCell.textContent = i;
-  tr.appendChild(idxCell);
+    const idxCell = td('col-idx');
+    idxCell.textContent = i;
+    tr.appendChild(idxCell);
 
-  // LABEL — onChange must NOT call renderBody() to avoid losing focus
-  const tdLabel = td();
-  tdLabel.style.minWidth = labelColWidth();
-  tdLabel.style.width = labelColWidth();
-  tdLabel.appendChild(mkCombo(row.label ?? '', () => getLabelSuggestions(i), (val) => {
-    row.label = val;
-    refreshAllDatalists();
-  }));
-  tr.appendChild(tdLabel);
-
-  // SIGNALS (before Action/Next)
-  const sigDefs = config?.signals;
-  if (sigDefs && typeof sigDefs === 'object') {
-    for (const [sig, def] of Object.entries(sigDefs)) {
-      const tdSig = td();
-      const _sw = sigColWidth(sig, def);
-      tdSig.style.minWidth = _sw;
-      tdSig.style.width = _sw;
-      if (def && def.values) {
-        const opts = Object.entries(resolveValues(def)).map(([k, v]) => ({ label: k, value: v }));
-        tdSig.appendChild(mkSelect(opts, row.signals?.[sig], (val) => {
-          row.signals[sig] = val === '' ? undefined : coerce(val);
-        }));
-      } else {
-        const wrap = document.createElement('div');
-        wrap.className = 'cb-wrap';
-        // hidden real checkbox for form semantics
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = !!(row.signals?.[sig]);
-        // custom visual box
-        const box = document.createElement('div');
-        box.className = 'cb-box' + (cb.checked ? ' checked' : '');
-        box.innerHTML = `<svg viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-        box.addEventListener('click', () => {
-          cb.checked = !cb.checked;
-          row.signals[sig] = cb.checked;
-          box.classList.toggle('checked', cb.checked);
-        });
-        wrap.appendChild(cb);
-        wrap.appendChild(box);
-        tdSig.appendChild(wrap);
-      }
-      tr.appendChild(tdSig);
-    }
-  }
-
-  // ACTION (penultimate)
-  const _av = getActionValues();
-  if (_av) {
-    const tdAction = td();
-    tdAction.style.minWidth = actionColWidth();
-    tdAction.style.width = actionColWidth();
-    const opts = Object.entries(_av).map(([k, v]) => ({ label: k, value: v }));
-    tdAction.appendChild(mkSelect(opts, row.action, (val) => {
-      row.action = val === '' ? undefined : coerce(val);
-      renderBody();
+    // LABEL — onChange must NOT call renderBody() to avoid losing focus
+    const tdLabel = td();
+    tdLabel.style.minWidth = labelColWidth();
+    tdLabel.style.width = labelColWidth();
+    tdLabel.appendChild(mkCombo(row.label ?? '', () => getLabelSuggestions(i), (val) => {
+        row.label = val;
+        refreshAllDatalists();
     }));
-    tr.appendChild(tdAction);
-  }
+    tr.appendChild(tdLabel);
 
-  // NEXT (last data column)
-  if (config.next_address) {
-    const tdNext = td();
-    tdNext.style.minWidth = labelColWidth();
-    tdNext.style.width = labelColWidth();
-    if (showNextField(row)) {
-      tdNext.appendChild(mkCombo(row.next ?? '', () => getNextSuggestions(), (val) => { row.next = val; }));
+    // SIGNALS (before Action/Next)
+    const sigDefs = config?.signals;
+    if (sigDefs && typeof sigDefs === 'object') {
+        for (const [sig, def] of Object.entries(sigDefs)) {
+        const tdSig = td();
+        const _sw = sigColWidth(sig, def);
+        tdSig.style.minWidth = _sw;
+        tdSig.style.width = _sw;
+        if (def && def.values) {
+            const opts = Object.entries(resolveValues(def)).map(([k, v]) => ({ label: k, value: v }));
+            tdSig.appendChild(mkSelect(opts, row.signals?.[sig], (val) => {
+            row.signals[sig] = val === '' ? undefined : coerce(val);
+            }));
+        } else {
+            const wrap = document.createElement('div');
+            wrap.className = 'cb-wrap';
+            // hidden real checkbox for form semantics
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = !!(row.signals?.[sig]);
+            // custom visual box
+            const box = document.createElement('div');
+            box.className = 'cb-box' + (cb.checked ? ' checked' : '');
+            box.innerHTML = `<svg viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+            box.addEventListener('click', () => {
+            cb.checked = !cb.checked;
+            row.signals[sig] = cb.checked;
+            box.classList.toggle('checked', cb.checked);
+            });
+            wrap.appendChild(cb);
+            wrap.appendChild(box);
+            tdSig.appendChild(wrap);
+        }
+        tr.appendChild(tdSig);
+        }
     }
-    tr.appendChild(tdNext);
-  }
 
-  // DELETE
-  const tdDel = td();
-  tdDel.style.minWidth = '36px';
-  tdDel.style.width = '36px';
-  tdDel.style.textAlign = 'center';
-  const delBtn = document.createElement('button');
-  delBtn.className = 'btn-del';
-  delBtn.title = 'Remover linha';
-  delBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 3V2.25h4.5V3h3a.75.75 0 0 1 0 1.5h-.5l-.9 8.1a1.75 1.75 0 0 1-1.74 1.65H5.89a1.75 1.75 0 0 1-1.74-1.65L3.25 4.5h-.5a.75.75 0 0 1 0-1.5zm1.5 0h1.5V2.25H7.25zm-1 2.5a.5.5 0 0 0-.498.55l.5 5a.5.5 0 0 0 .996-.1l-.5-5a.5.5 0 0 0-.498-.45zm3.5 0a.5.5 0 0 0-.498.45l-.5 5a.5.5 0 0 0 .996.1l.5-5A.5.5 0 0 0 9.75 5.5z"/></svg>`;
-  delBtn.addEventListener('click', () => { microcode.splice(i, 1); render(); });
-  tdDel.appendChild(delBtn);
-  tr.appendChild(tdDel);
+    // ACTION (penultimate)
+    const _av = getActionValues();
+    if (_av) {
+        const tdAction = td();
+        tdAction.style.minWidth = actionColWidth();
+        tdAction.style.width = actionColWidth();
+        const opts = Object.entries(_av).map(([k, v]) => ({ label: k, value: v }));
+        tdAction.appendChild(mkSelect(opts, row.action, (val) => {
+        row.action = val === '' ? undefined : coerce(val);
+        renderBody();
+        }));
+        tr.appendChild(tdAction);
+    }
 
-  return tr;
+    // NEXT (last data column)
+    if (config.next_address) {
+        const tdNext = td();
+        tdNext.style.minWidth = labelColWidth();
+        tdNext.style.width = labelColWidth();
+        if (showNextField(row)) {
+        tdNext.appendChild(mkCombo(row.next ?? '', () => getNextSuggestions(), (val) => { row.next = val; }));
+        }
+        tr.appendChild(tdNext);
+    }
+
+    // DELETE
+    const tdDel = td();
+    tdDel.style.minWidth = '36px';
+    tdDel.style.width = '36px';
+    tdDel.style.textAlign = 'center';
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-del';
+    delBtn.title = 'Remover linha';
+    delBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 3V2.25h4.5V3h3a.75.75 0 0 1 0 1.5h-.5l-.9 8.1a1.75 1.75 0 0 1-1.74 1.65H5.89a1.75 1.75 0 0 1-1.74-1.65L3.25 4.5h-.5a.75.75 0 0 1 0-1.5zm1.5 0h1.5V2.25H7.25zm-1 2.5a.5.5 0 0 0-.498.55l.5 5a.5.5 0 0 0 .996-.1l-.5-5a.5.5 0 0 0-.498-.45zm3.5 0a.5.5 0 0 0-.498.45l-.5 5a.5.5 0 0 0 .996.1l.5-5A.5.5 0 0 0 9.75 5.5z"/></svg>`;
+    delBtn.addEventListener('click', () => { microcode.splice(i, 1); render(); });
+    tdDel.appendChild(delBtn);
+    tr.appendChild(tdDel);
+
+    return tr;
 };
 
 // ── ELEMENT FACTORIES ──────────────────────────────
