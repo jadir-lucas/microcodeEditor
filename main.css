@@ -1,0 +1,25 @@
+/* Transforma o main-area num container flexível e dá a ele uma altura */
+#main-area {
+    display: flex;
+    flex-direction: column;
+    min-height: 60vh; /* Ajuste este valor (ex: 60vh, 400px) para preencher a tela como desejar */
+}
+
+/* O "margin: auto" faz a mágica de empurrar o elemento para o exato centro vertical e horizontal */
+#empty-no-config, 
+#empty-no-rows {
+    margin: auto; 
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* Ajuste opcional para o ícone SVG e o texto ficarem com um espaçamento bonito */
+#empty-no-config svg, 
+#empty-no-rows svg {
+    width: 64px;
+    height: 64px;
+    margin-bottom: 16px;
+    color: var(--text-dim, #888); /* Cor de fallback caso a variável não exista */
+}
