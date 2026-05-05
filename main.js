@@ -1,0 +1,1372 @@
+// ── STATE ──────────────────────────────────────────
+let config            = null;
+let microcode         = [];
+let currentTheme      = 'light';
+let microcodeFilename = 'microcode.mc';
+
+// ── DOM REFS ───────────────────────────────────────
+const fileConfigArch = document.getElementById('file-config-arch');
+const fileConfigAsm  = document.getElementById('file-config-asm');
+const fileMicrocode  = document.getElementById('file-microcode');
+const archBtnNew     = document.getElementById('arch-btn-new');
+const archBtnSave    = document.getElementById('arch-btn-save');
+const btnAdd         = document.getElementById('btn-add-inline');
+const btnSave        = document.getElementById('btn-save');
+const btnCodeNew     = document.getElementById('btn-code-new');
+const btnTheme       = document.getElementById('btn-theme');
+const iconMoon       = document.getElementById('icon-moon');
+const iconSun        = document.getElementById('icon-sun');
+const emptyNoConfig  = document.getElementById('empty-no-config');
+const emptyNoRows    = document.getElementById('empty-no-rows');
+const tableWrapper   = document.getElementById('table-wrapper');
+const thead          = document.getElementById('thead');
+const tbody          = document.getElementById('tbody');
+
+// ── HELPERS ────────────────────────────────────────
+// All distinct, non-empty labels defined in the label column
+const getAllLabels = () =>
+[...new Set(microcode.map(r => r.label).filter(l => l && l.trim()))];
+
+// All distinct, non-empty values referenced in any next field
+const getAllNextRefs = () =>
+[...new Set(microcode.map(r => r.next).filter(l => l && l.trim()))];
+
+// Names that appear ONLY in next — not yet defined as a label in any row
+    const getNextOnlyNames = () => {
+    const defined = new Set(getAllLabels());
+    return getAllNextRefs().filter(n => !defined.has(n));
+};
+
+// Label suggestions: names referenced in next but not yet defined as a label
+// (excludes the label the current row already has, to avoid self-suggestion)
+    const getLabelSuggestions = (excludeIdx = -1) => {
+    const selfLabel = excludeIdx >= 0 ? microcode[excludeIdx]?.label : '';
+    return getNextOnlyNames().filter(n => n !== selfLabel);
+};
+
+// Next suggestions: all defined labels + names only in next (unresolved refs)
+const getNextSuggestions = () =>
+[...new Set([...getAllLabels(), ...getNextOnlyNames()])];
+
+const resolveValues = (def) => {
+    if (!def) return {};
+    if (def.values === '@Asel') {
+        const asel = config?.signals?.['Asel']?.values;
+        return (asel && typeof asel === 'object') ? asel : {};
+    }
+    return (def.values && typeof def.values === 'object') ? def.values : {};
+};
+
+const getActionValues = () => {
+    // if action width is 0 in the arch form, treat as no action field
+    const awEl = document.getElementById('actionWidth');
+    if (awEl && parseInt(awEl.value) === 0) return null;
+    return config?.action?.Values ?? config?.action?.values ?? null;
+};
+
+const showNextField = (row) => {
+    const av = getActionValues();
+    if (!av) return true;   // no action field → next is always shown
+    const entry = Object.entries(av).find(([, v]) => v === row.action);
+    if (!entry) return false;
+    return entry[0] === 'GOTO' || entry[0].startsWith('if');
+};
+
+const coerce = (val) => {
+    if (val === '' || val == null) return undefined;
+    const n = Number(val);
+    return isNaN(n) ? val : n;
+};
+
+// Build default row using first declared value for each signal
+const makeDefaultRow = () => {
+    const signals = {};
+    const sigDefs = config?.signals;
+    if (sigDefs && typeof sigDefs === 'object') {
+        for (const [sig, def] of Object.entries(sigDefs)) {
+            if (def && def.values) {
+                const vals = resolveValues(def);
+                const entries = Object.entries(vals);
+                signals[sig] = entries.length > 0 ? entries[0][1] : undefined;
+            } else {
+                signals[sig] = false;
+            }
+        }
+    }
+    let defaultAction = undefined;
+    const actionVals = getActionValues();
+    if (actionVals && typeof actionVals === 'object') {
+        const first = Object.entries(actionVals)[0];
+        if (first) defaultAction = first[1];
+    }
+    return { label: '', action: defaultAction, next: undefined, signals };
+};
+
+// ── RENDER ─────────────────────────────────────────
+const render = () => {
+    const hasConfig = config !== null;
+    const hasRows   = microcode.length > 0;
+
+    emptyNoConfig.style.display = hasConfig ? 'none' : 'flex';
+    emptyNoRows.style.display   = (hasConfig && !hasRows) ? 'flex' : 'none';
+
+    // Show card+table header always when config loaded; tbody is empty when no rows
+    const codeCard = document.getElementById('code-card');
+    if (codeCard) codeCard.style.display = hasConfig ? 'block' : 'none';
+    tableWrapper.style.display = hasConfig ? 'block' : 'none';
+
+    const codeFooter = document.getElementById('code-add-footer');
+    if (codeFooter) codeFooter.style.display = hasConfig ? 'block' : 'none';
+
+    btnAdd.disabled      = !hasConfig;
+    archBtnSave.disabled = !hasConfig;
+    btnSave.disabled     = !hasConfig || !hasRows;
+    btnCodeNew.disabled  = !hasConfig;
+
+    if (hasConfig) renderTable(); // always render header; body empty when no rows
+};
+
+// ── TABLE ──────────────────────────────────────────
+const renderTable = () => { renderHeader(); renderBody(); };
+
+// Estimate pixel width needed to display a text string in the table font
+// JetBrains Mono ~7px/char at 11px, header label at 10px ~6px/char
+const estimateTextPx = (text, isHeader = false) => {
+const charW = isHeader ? 6.5 : 7.2;
+return Math.ceil(text.length * charW);
+};
+
+// Compute the minimum width for a signal column based on its longest option label
+const sigColWidth = (sig, def) => {
+const headerPx = estimateTextPx(sig, true);
+let contentPx  = 40; // minimum for a select/checkbox
+if (def && def.values) {
+    const vals = resolveValues(def);
+    const longest = Object.keys(vals).reduce((a, k) => k.length > a.length ? k : a, '');
+    contentPx = estimateTextPx(longest) + 36; // 36px for padding + arrow
+}
+return Math.max(headerPx + 20, contentPx, 68) + 'px';
+};
+
+// Width for the action column
+const actionColWidth = () => {
+const av = getActionValues();
+if (!av) return '100px';
+const longest = Object.keys(av).reduce((a, k) => k.length > a.length ? k : a, '');
+const contentPx = estimateTextPx(longest) + 36;
+return Math.max(contentPx, estimateTextPx('Action', true) + 20, 80) + 'px';
+};
+
+// Width for label/next: long enough for a short identifier (~12 chars)
+const labelColWidth = () => {
+// match next column — both hold user-defined identifiers
+return '120px';
+};
+
+const renderHeader = () => {
+const tr = document.createElement('tr');
+const addTh = (text, width, tip = '') => {
+    const th = document.createElement('th');
+    th.textContent = text;
+    if (width) { th.style.minWidth = width; th.style.width = width; }
+    if (tip) th.title = tip;
+    tr.appendChild(th);
+    return th;
+};
+addTh('#').classList.add('col-idx');
+addTh('Label', labelColWidth());
+const sigDefs = config?.signals;
+if (sigDefs && typeof sigDefs === 'object') {
+    for (const [sig, def] of Object.entries(sigDefs))
+    addTh(sig, sigColWidth(sig, def), `Signal: ${sig}`);
+}
+if (getActionValues()) addTh('Action', actionColWidth());
+if (config.next_address) addTh('Next', labelColWidth());
+addTh('', '42px');
+thead.innerHTML = '';
+thead.appendChild(tr);
+};
+
+const renderBody = () => {
+    tbody.innerHTML = '';
+    microcode.forEach((row, i) => tbody.appendChild(buildRow(row, i)));
+};
+
+const buildRow = (row, i) => {
+    const tr = document.createElement('tr');
+
+    const idxCell = td('col-idx');
+    idxCell.textContent = i;
+    tr.appendChild(idxCell);
+
+    // LABEL — onChange must NOT call renderBody() to avoid losing focus
+    const tdLabel = td();
+    tdLabel.style.minWidth = labelColWidth();
+    tdLabel.style.width = labelColWidth();
+    tdLabel.appendChild(mkCombo(row.label ?? '', () => getLabelSuggestions(i), (val) => {
+        row.label = val;
+        refreshAllDatalists();
+    }));
+    tr.appendChild(tdLabel);
+
+    // SIGNALS (before Action/Next)
+    const sigDefs = config?.signals;
+    if (sigDefs && typeof sigDefs === 'object') {
+        for (const [sig, def] of Object.entries(sigDefs)) {
+            const tdSig = td();
+            const _sw = sigColWidth(sig, def);
+            tdSig.style.minWidth = _sw;
+            tdSig.style.width = _sw;
+            if (def && def.values) {
+                const opts = Object.entries(resolveValues(def)).map(([k, v]) => ({ label: k, value: v }));
+                    tdSig.appendChild(mkSelect(opts, row.signals?.[sig], (val) => {
+                    row.signals[sig] = val === '' ? undefined : coerce(val);
+                }));
+            } else {
+                const wrap = document.createElement('div');
+                wrap.className = 'cb-wrap';
+                // hidden real checkbox for form semantics
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = !!(row.signals?.[sig]);
+                // custom visual box
+                const box = document.createElement('div');
+                box.className = 'cb-box' + (cb.checked ? ' checked' : '');
+                box.innerHTML = `<svg viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+                box.addEventListener('click', () => {
+                    cb.checked = !cb.checked;
+                    row.signals[sig] = cb.checked;
+                    box.classList.toggle('checked', cb.checked);
+                });
+                wrap.appendChild(cb);
+                wrap.appendChild(box);
+                tdSig.appendChild(wrap);
+            }
+            tr.appendChild(tdSig);
+        }
+    }
+
+    // ACTION (penultimate)
+    const _av = getActionValues();
+    if (_av) {
+        const tdAction = td();
+        tdAction.style.minWidth = actionColWidth();
+        tdAction.style.width = actionColWidth();
+        const opts = Object.entries(_av).map(([k, v]) => ({ label: k, value: v }));
+        tdAction.appendChild(mkSelect(opts, row.action, (val) => {
+            row.action = val === '' ? undefined : coerce(val);
+            renderBody();
+        }));
+        tr.appendChild(tdAction);
+    }
+
+    // NEXT (last data column)
+    if (config.next_address) {
+        const tdNext = td();
+        tdNext.style.minWidth = labelColWidth();
+        tdNext.style.width = labelColWidth();
+        if (showNextField(row)) {
+            tdNext.appendChild(mkCombo(row.next ?? '', () => getNextSuggestions(), (val) => { row.next = val; }));
+        }
+        tr.appendChild(tdNext);
+    }
+
+    // DELETE
+    const tdDel = td();
+    tdDel.style.minWidth = '36px';
+    tdDel.style.width = '36px';
+    tdDel.style.textAlign = 'center';
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-del';
+    delBtn.title = 'Remover linha';
+    delBtn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 3V2.25h4.5V3h3a.75.75 0 0 1 0 1.5h-.5l-.9 8.1a1.75 1.75 0 0 1-1.74 1.65H5.89a1.75 1.75 0 0 1-1.74-1.65L3.25 4.5h-.5a.75.75 0 0 1 0-1.5zm1.5 0h1.5V2.25H7.25zm-1 2.5a.5.5 0 0 0-.498.55l.5 5a.5.5 0 0 0 .996-.1l-.5-5a.5.5 0 0 0-.498-.45zm3.5 0a.5.5 0 0 0-.498.45l-.5 5a.5.5 0 0 0 .996.1l.5-5A.5.5 0 0 0 9.75 5.5z"/></svg>`;
+    delBtn.addEventListener('click', () => { microcode.splice(i, 1); render(); });
+    tdDel.appendChild(delBtn);
+    tr.appendChild(tdDel);
+
+    return tr;
+};
+
+// ── ELEMENT FACTORIES ──────────────────────────────
+const td = (cls = '') => {
+    const el = document.createElement('td');
+    if (cls) el.className = cls;
+    return el;
+};
+
+const mkSelect = (options, currentValue, onChange) => {
+    const sel = document.createElement('select');
+    const blank = document.createElement('option');
+    blank.value = ''; blank.textContent = '—';
+    sel.appendChild(blank);
+    for (const opt of options) {
+        const o = document.createElement('option');
+        o.value = opt.value;
+        o.textContent = opt.label;
+        if (String(opt.value) === String(currentValue)) o.selected = true;
+        sel.appendChild(o);
+    }
+    sel.addEventListener('change', () => onChange(sel.value));
+    return sel;
+};
+
+// Global dropdown singleton — one at a time
+let _activeDropdown = null;
+const _closeAllDropdowns = () => {
+    if (_activeDropdown) { _activeDropdown.style.display = 'none'; _activeDropdown = null; }
+};
+
+const mkCombo = (currentValue, getSuggestions, onChange) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'combo-wrap';
+
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.value = currentValue;
+    wrap.appendChild(inp);
+
+    // Dropdown appended to body so it's never clipped by table overflow
+    const dd = document.createElement('div');
+    dd.className = 'combo-dropdown';
+    document.body.appendChild(dd);
+
+    let activeIdx = -1;
+
+    const positionDD = () => {
+        const r = inp.getBoundingClientRect();
+        dd.style.top   = (r.bottom) + 'px';
+        dd.style.left  = r.left + 'px';
+        dd.style.width = r.width + 'px';
+    };
+
+    const showDD = () => {
+        const filter = inp.value.toLowerCase();
+        const items  = getSuggestions().filter(s => s.toLowerCase().includes(filter));
+        if (!items.length) { dd.style.display = 'none'; return; }
+
+        dd.innerHTML = '';
+        activeIdx = -1;
+        items.forEach((s, idx) => {
+            const item = document.createElement('div');
+            item.className = 'combo-item';
+            item.textContent = s;
+            item.addEventListener('mousedown', e => {
+                e.preventDefault();
+                inp.value = s;
+                onChange(s);
+                dd.style.display = 'none';
+                _activeDropdown = null;
+            });
+            item.addEventListener('mouseenter', () => {
+                dd.querySelectorAll('.combo-item').forEach(el => el.classList.remove('active'));
+                item.classList.add('active');
+                activeIdx = idx;
+            });
+            dd.appendChild(item);
+        });
+
+        positionDD();
+        dd.style.display = 'block';
+        _activeDropdown = dd;
+    };
+
+    const hideDD = () => {
+        setTimeout(() => { dd.style.display = 'none'; if (_activeDropdown === dd) _activeDropdown = null; }, 120);
+    };
+
+    inp.addEventListener('focus',  () => showDD());
+    inp.addEventListener('input',  () => { onChange(inp.value); showDD(); });
+    inp.addEventListener('blur',   () => hideDD());
+    inp.addEventListener('change', () => onChange(inp.value));
+
+    // Keyboard navigation
+    inp.addEventListener('keydown', e => {
+        const items = [...dd.querySelectorAll('.combo-item')];
+        if (!items.length) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIdx = Math.min(activeIdx + 1, items.length - 1);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIdx = Math.max(activeIdx - 1, 0);
+        } else if (e.key === 'Enter' && activeIdx >= 0) {
+            e.preventDefault();
+            inp.value = items[activeIdx].textContent;
+            onChange(inp.value);
+            dd.style.display = 'none';
+            return;
+        } else if (e.key === 'Escape') {
+            dd.style.display = 'none'; return;
+        } else { 
+            return; 
+        }
+        items.forEach(el => el.classList.remove('active'));
+        items[activeIdx]?.classList.add('active');
+        items[activeIdx]?.scrollIntoView({ block: 'nearest' });
+    });
+
+    // Reposition on scroll/resize
+    wrap._updatePos = positionDD;
+    return wrap;
+};
+
+// Close dropdown when clicking outside
+document.addEventListener('mousedown', e => {
+    if (_activeDropdown && !_activeDropdown.contains(e.target)) _closeAllDropdowns();
+});
+
+// Refresh all combo dropdowns' internal suggestion caches (no re-render needed)
+const refreshAllDatalists = () => {
+// custom combos pull fresh suggestions on each open — nothing to do here
+};
+
+// ── CONFIG LOAD ────────────────────────────────────
+function loadConfig(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        try {
+            const text = ev.target.result;
+            config    = JSON.parse(text);
+            microcode = [];
+            archLoadJSONContent(text);
+            archShowContent();
+            archBtnSave.disabled = false;
+            // set filename from loaded file
+            const fnEl = document.getElementById('arch-filename');
+            if (fnEl && file.name) fnEl.value = file.name;
+            render();
+        } catch(err) { 
+            alert('Erro ao ler JSON: ' + err.message); console.error(err); 
+        }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+}
+
+fileConfigArch.addEventListener('change', (e) => {
+    loadConfig(e);
+});
+
+fileConfigAsm.addEventListener('change', (e) => {
+    loadConfig(e);
+});
+
+// ── ARCHITECTURE: New / Load (=Config) / Save ─────
+archBtnNew.addEventListener('click', () => {
+    if (config !== null &&
+        !confirm('Limpar a arquitetura atual? Alterações não salvas serão perdidas.')) return;
+    config    = null;
+    microcode = [];
+    document.getElementById('arch-filename').value = 'default.json';
+    archNewFile();
+    render();
+});
+
+archBtnSave.addEventListener('click', () => {
+    archGenerateJSON();
+    const text = document.getElementById('arch-output').value;
+    try { config = JSON.parse(text); render(); } catch(e) {}
+    const blob = new Blob([text], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const fname = (document.getElementById('arch-filename')?.value || 'default').replace(/\.json$/i,'') + '.json';
+    a.href = url; a.download = fname; a.click();
+    URL.revokeObjectURL(url);
+});
+
+// ── MICROCODE: New ────────────────────────────────
+btnCodeNew.addEventListener('click', () => {
+    if (microcode.length > 0 &&
+        !confirm('Limpar o microcódigo atual? Alterações não salvas serão perdidas.')) return;
+    microcode = [];
+    microcodeFilename = 'microcode.json';
+    render();
+});
+
+// ── MICROCODE: Load / Save ────────────────────────
+btnSave.addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(microcode, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = microcodeFilename; a.click();
+    URL.revokeObjectURL(url);
+});
+
+fileMicrocode.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    microcodeFilename = file.name;
+    readJSON(file, (json) => {
+        if (!Array.isArray(json)) {
+        alert('Arquivo inválido: esperado um array JSON.');
+        return;
+        }
+        microcode = json;
+        render();
+    });
+    e.target.value = '';
+});
+
+// ── ADD ROW ────────────────────────────────────────
+btnAdd.addEventListener('click', () => {
+    microcode.push(makeDefaultRow());
+    render();
+    setTimeout(() => { tableWrapper.scrollTop = tableWrapper.scrollHeight; });
+});
+
+// ── THEME TOGGLE ───────────────────────────────────
+    btnTheme.addEventListener('click', () => {
+    applyTheme(currentTheme === 'dark' ? 'light' : 'dark');
+    archDrawDiagram();
+});
+
+// ── UTIL ───────────────────────────────────────────
+const readJSON = (file, cb) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        try { 
+            cb(JSON.parse(ev.target.result)); 
+        }
+        catch { 
+            alert('Erro ao ler JSON: arquivo inválido ou malformado.'); 
+        }
+    };
+    reader.readAsText(file);
+};
+
+
+// ═══════════════════════════════════════════════════════
+// ARCHITECTURE EDITOR
+// ═══════════════════════════════════════════════════════
+
+let _archSuppressDiagram = false;
+
+const archShowContent = () => {
+    document.getElementById('arch-empty').style.display   = 'none';
+    document.getElementById('arch-content').classList.add('visible');
+    archBtnSave.disabled = false;
+    setTimeout(() => { archDrawDiagram(); }, 80);
+};
+
+const archHideContent = () => {
+    document.getElementById('arch-empty').style.display   = '';
+    document.getElementById('arch-content').classList.remove('visible');
+    archBtnSave.disabled = true;
+};
+
+// ── New / Reset ──────────────────────────────────────
+function archNewFile() {
+    document.getElementById('addrBits').value   = 12;
+    document.getElementById('wordSize').value   = 32;
+    document.getElementById('actionWidth').value = 0;
+    document.getElementById('naBitStart').textContent = 4;
+    document.getElementById('naWidth').textContent    = 12;
+    document.getElementById('naOverlapped').checked   = true;
+    document.getElementById('actions-container').innerHTML = '';
+    document.getElementById('signals-container').innerHTML = '';
+    document.getElementById('flags-container').innerHTML = '';
+    document.getElementById('opcodes-container').innerHTML = '';
+    delete document.getElementById('arch-output').dataset.opcodeBits;
+    document.getElementById('actionError').className   = 'arch-status';
+    document.getElementById('signalError').className   = 'arch-status';
+    document.getElementById('conflictSummary').className = 'arch-status';
+    archHideContent();
+}
+
+
+// ── Load JSON into form ──────────────────────────────
+function archLoadJSONContent(text) {
+    const cfg = JSON.parse(text);
+    _archSuppressDiagram = true;  // don't redraw on every archAddSignal call
+    document.getElementById('addrBits').value = cfg.rom.address_bits;
+    if (cfg.rom.word_size) document.getElementById('wordSize').value = cfg.rom.word_size;
+
+    if (cfg.action && cfg.action.bits) {
+        const aw = cfg.action.bits[1] - cfg.action.bits[0] + 1;
+        document.getElementById('actionWidth').value = aw;
+    } else {
+        document.getElementById('actionWidth').value = 0;
+    }
+    if (cfg.next_address && cfg.next_address.bits) {
+        document.getElementById('naBitStart').textContent = cfg.next_address.bits[0];
+        document.getElementById('naWidth').textContent    = cfg.next_address.bits[1] - cfg.next_address.bits[0] + 1;
+        document.getElementById('naOverlapped').checked   = cfg.next_address.overlaped !== false;
+    }
+
+    document.getElementById('actions-container').innerHTML = '';
+    const av = cfg.action && cfg.action.values ? cfg.action.values : {};
+    for (const k in av) archAddAction(k, av[k]);
+
+    document.getElementById('signals-container').innerHTML = '';
+
+    function resolveVals(name) {
+        const sig = cfg.signals[name];
+        if (!sig) return null;
+        if (typeof sig.values === 'string' && sig.values.startsWith('@'))
+        return resolveVals(sig.values.substring(1));
+        return sig.values || null;
+    }
+
+    const sigDefs = cfg.signals || {};
+    for (const s in sigDefs) {
+        const sig = sigDefs[s];
+        if (!sig || typeof sig !== 'object') continue;
+        let values = '';
+        try {
+            const vals = resolveVals(s);
+            if (vals && typeof vals === 'object')
+                values = Object.entries(vals).map(([k,v]) => k + '=' + (typeof v === 'object' ? JSON.stringify(v) : v)).join(',');
+        } catch(e) { 
+            console.warn('resolveVals failed for', s, e); 
+        }
+
+        let bitStart = '', width = '';
+        if (sig.bit !== undefined) { 
+            bitStart = sig.bit; width = 1; 
+        }
+        else if (Array.isArray(sig.bits)) { 
+            bitStart = sig.bits[0]; width = sig.bits[1] - sig.bits[0] + 1; 
+        }
+        archAddSignal(s, bitStart, width, values);
+    }
+
+    archLoadFlags(cfg.flag || cfg.flags || null);
+    // store opcode bits for save round-trip
+    const opcodeField = cfg.opcode || cfg.opCode || {};
+    if (opcodeField.bits) {
+        document.getElementById('arch-output').dataset.opcodeBits = JSON.stringify(opcodeField.bits);
+    }
+    asmLoadOpcodes(opcodeField.mnemonics || cfg.opcodes || cfg.instructions || null);
+    archUpdateNaWidth();
+    archUpdateNaBitStart();
+    archUpdateActionHeader();
+    _archSuppressDiagram = false;
+    setTimeout(() => { archDrawDiagram(); }, 80);
+}
+
+// ── Generate JSON from form ──────────────────────────
+function archGenerateJSON() {
+    const aStart  = 0;
+    const aWidth  = parseInt(document.getElementById('actionWidth').value) || 4;
+    const naStart = parseInt(document.getElementById('naBitStart').textContent) || 4;
+    const naW     = parseInt(document.getElementById('naWidth').textContent)    || 12;
+    const naOver  = document.getElementById('naOverlapped').checked;
+
+    const cfg = {
+        rom: {
+        address_bits: parseInt(document.getElementById('addrBits').value),
+        word_size:    parseInt(document.getElementById('wordSize').value)
+        },
+        signals: {},
+        next_address: { bits: [naStart, naStart + naW - 1], overlaped: naOver }
+    };
+
+    if (aWidth > 0) {
+        cfg.action = { bits: [aStart, aStart + aWidth - 1], values: {} };
+    }
+
+    if (aWidth > 0) {
+        document.querySelectorAll('.arch-action-row').forEach(div => {
+        const name  = div.querySelector('.actionName').textContent.trim();
+        const value = div.querySelector('.actionValue').value;
+        if (name) cfg.action.values[name] = parseInt(value);
+        });
+    }
+
+    document.querySelectorAll('.arch-signal').forEach(div => {
+        const name     = div.querySelector('.sig-name').value;
+        const bitStart = div.querySelector('.bitStart').value;
+        const width    = div.querySelector('.sigWidth').value;
+        const values   = div.querySelector('.arch-values-hidden').value;
+        if (!name) return;
+        cfg.signals[name] = {};
+        if (bitStart !== '' && width !== '') {
+            const bs = parseInt(bitStart), w = parseInt(width);
+            if (w === 1) cfg.signals[name].bit  = bs;
+            else         cfg.signals[name].bits = [bs, bs + w - 1];
+        }
+        const v = archParseValues(values);
+        if (v) cfg.signals[name].values = v;
+    });
+
+    const flags = archGetFlags();
+    if (flags) cfg.flag = flags;
+
+    // opcodes → cfg.opcode.mnemonics array
+    const mnemonics = [];
+    document.querySelectorAll('#opcodes-container > div').forEach(div => {
+        const name  = div.querySelector('.opcode-mnemonic')?.value.trim().toUpperCase();
+        const value = div.querySelector('.opcode-value')?.value.trim();
+        const desc  = div.querySelector('.opcode-desc')?.value.trim();
+        if (name) {
+        const entry = { name, value };
+        if (desc) entry.description = desc;
+        mnemonics.push(entry);
+        }
+    });
+
+    if (mnemonics.length) {
+        // preserve bits from loaded config or default 8-bit opcode field
+        const _obRaw = document.getElementById('arch-output').dataset.opcodeBits;
+        const ob = _obRaw ? JSON.parse(_obRaw) : [0, 7];
+        cfg.opcode = { bits: ob, mnemonics };
+    }
+
+    delete cfg._opcodeBits;
+
+    document.getElementById('arch-output').value = JSON.stringify(cfg, null, 2);
+}
+
+// Sync config var from form and re-render Code tab
+// Returns total used bits and budget; shows warning and returns false if over budget
+function archCheckBitBudget(sourceLabel) {
+    const ws     = parseInt(document.getElementById('wordSize').value)    || 32;
+    const aWidth = parseInt(document.getElementById('actionWidth').value) || 4;
+    const naOver = document.getElementById('naOverlapped').checked;
+    const naW    = parseInt(document.getElementById('naWidth').textContent) || 12;
+
+    let sigBits = 0;
+    document.querySelectorAll('.arch-signal').forEach(div => {
+        const w = parseInt(div.querySelector('.sigWidth').value);
+        if (!isNaN(w)) sigBits += w;
+    });
+
+    const usedBits = aWidth + sigBits + (naOver ? 0 : naW);
+    if (usedBits > ws) {
+        const breakdown = `ACTION(${aWidth}) + Signals(${sigBits})` +
+        (naOver ? '' : ` + NEXT_ADDRESS(${naW})`) +
+        ` = ${usedBits} > Word size(${ws})`;
+        archShowStatus('conflictSummary', `⚠ Bit budget exceeded after changing ${sourceLabel}:<br>${breakdown}`, 'err');
+        return false;
+    }
+    // clear budget warning if currently showing one
+    const box = document.getElementById('conflictSummary');
+    if (box.className.includes('err') && box.innerHTML.includes('budget')) {
+        box.className = 'arch-status';
+    }
+    return true;
+}
+
+function archSyncConfig() {
+    archGenerateJSON();
+    try {
+        config = JSON.parse(document.getElementById('arch-output').value);
+        render();
+    } catch(e) {}
+    archDrawDiagram();
+}
+
+function archParseValues(str) {
+    if (!str) return null;
+    const obj = {};
+    str.split(',').forEach(p => {
+        const eq = p.indexOf('=');
+        if (eq < 0) return;
+        const k = p.slice(0, eq).trim();
+        const raw = p.slice(eq + 1).trim();
+        if (!k) return;
+        const n = parseInt(raw);
+        obj[k] = isNaN(n) ? raw : n;   // keep string if not a clean integer
+    });
+    return Object.keys(obj).length ? obj : null;
+}
+
+// ── Actions ──────────────────────────────────────────
+function archAddSelectedAction() {
+    const sel  = document.getElementById('actionNameSelect');
+    const name = sel.value;
+    if (!name) { 
+        archShowStatus('actionError', 'Please select an action name.', 'err'); 
+        return; 
+    }
+    const existing = [...document.querySelectorAll('.actionName')].map(i => i.textContent);
+    if (existing.includes(name)) { 
+        archShowStatus('actionError', '"' + name + '" is already in the list.', 'err'); 
+        return; 
+    }
+    const usedVals = [...document.querySelectorAll('.actionValue')].map(i => parseInt(i.value)).filter(v => !isNaN(v));
+    let next = 0; while (usedVals.includes(next)) next++;
+    archAddAction(name, next);
+    sel.value = '';
+    archSyncConfig();
+}
+
+function archAddAction(name='', value='') {
+    const div = document.createElement('div');
+    div.className = 'arch-action-row';
+    div.innerHTML = `
+        <span class="actionName" style="font-family:var(--mono);font-size:12px;color:var(--text);padding:2px 4px;">${name}</span>
+        <input class="actionValue arch-signal-input" type="number" min="0" max="15" value="${value}" style="width:100%">
+        <button class="arch-del-btn" title="Remove action" onclick="this.closest('.arch-action-row').remove();archSyncConfig();"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 3V2.25h4.5V3h3a.75.75 0 0 1 0 1.5h-.5l-.9 8.1a1.75 1.75 0 0 1-1.74 1.65H5.89a1.75 1.75 0 0 1-1.74-1.65L3.25 4.5h-.5a.75.75 0 0 1 0-1.5zm1.5 0h1.5V2.25H7.25zm-1 2.5a.5.5 0 0 0-.498.55l.5 5a.5.5 0 0 0 .996-.1l-.5-5a.5.5 0 0 0-.498-.45zm3.5 0a.5.5 0 0 0-.498.45l-.5 5a.5.5 0 0 0 .996.1l.5-5A.5.5 0 0 0 9.75 5.5z"/></svg></button>
+    `;
+    div.querySelector('.actionValue').addEventListener('change', () => archSyncConfig());
+    document.getElementById('actions-container').appendChild(div);
+}
+
+function archCheckActions() {
+    const rows = document.querySelectorAll('.arch-action-row');
+    const names = [], values = [], errors = [];
+    rows.forEach(row => {
+        const name = row.querySelector('.actionName').textContent.trim();
+        const val  = parseInt(row.querySelector('.actionValue').value);
+        if (!name) return;
+        const maxVal = Math.pow(2, parseInt(document.getElementById('actionWidth').value)||4) - 1;
+        if (isNaN(val) || val < 0 || val > maxVal) errors.push('"' + name + '": value ' + val + ' out of range (0-' + maxVal + ')');
+        if (names.includes(name)) errors.push('Duplicate name: "' + name + '"');
+        else names.push(name);
+        if (!isNaN(val) && values.includes(val)) errors.push('Duplicate value: ' + val);
+        else if (!isNaN(val)) values.push(val);
+    });
+    if (errors.length) archShowStatus('actionError', errors.join('<br>'), 'err');
+    else               archShowStatus('actionError', '✓ No issues found in Actions.', 'ok');
+}
+
+function archUpdateActionHeader() {
+    const aWidth  = parseInt(document.getElementById('actionWidth').value) || 4;
+    const maxVal  = Math.pow(2, aWidth) - 1;
+    document.getElementById('actionValueHeader').textContent = 'Value (0-' + maxVal + ')';
+    document.querySelectorAll('.actionValue').forEach(inp => { inp.max = maxVal; });
+}
+
+// ── Signals ──────────────────────────────────────────
+function archNextAvailableBit() {
+    const aWidth = parseInt(document.getElementById('actionWidth').value) || 4;
+    let max = aWidth;
+    document.querySelectorAll('.arch-signal').forEach(div => {
+        const bs = parseInt(div.querySelector('.bitStart').value);
+        const w  = parseInt(div.querySelector('.sigWidth').value);
+        if (!isNaN(bs) && !isNaN(w)) max = Math.max(max, bs + w);
+    });
+    return max;
+}
+
+function archSortSignals() {
+    const c = document.getElementById('signals-container');
+    [...c.querySelectorAll('.arch-signal')].sort((a, b) =>
+        (parseInt(a.querySelector('.bitStart').value)||0) - (parseInt(b.querySelector('.bitStart').value)||0)
+    ).forEach(r => c.appendChild(r));
+}
+
+function archRepackSignals(changedDiv) {
+    archSortSignals();
+    const rows = [...document.querySelectorAll('.arch-signal')];
+    const idx  = rows.indexOf(changedDiv);
+    if (idx < 0) return;
+    for (let i = idx; i < rows.length - 1; i++) {
+        const bs = parseInt(rows[i].querySelector('.bitStart').value);
+        const w  = parseInt(rows[i].querySelector('.sigWidth').value);
+        if (!isNaN(bs) && !isNaN(w)) rows[i+1].querySelector('.bitStart').value = bs + w;
+    }
+    archUpdateNaBitStart();
+}
+
+function archAddSignal(name='', bitStart='', width='', values='') {
+    if (bitStart === '') bitStart = archNextAvailableBit();
+
+    function buildValueRows(valStr) {
+        if (!valStr) return '';
+        return valStr.split(',').filter(p => p.includes('=')).map(p => {
+        const [k, v] = p.split('=');
+        return `<div class="arch-value-row">
+            <input class="vName arch-signal-input" value="${k.trim()}" placeholder="Name">
+            <input class="vValue arch-signal-input" type="text" value="${v.trim()}" placeholder="0 or 1x0">
+            <button class="arch-del-btn" title="Remove value" onclick="archRemoveValueRow(this)"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 3V2.25h4.5V3h3a.75.75 0 0 1 0 1.5h-.5l-.9 8.1a1.75 1.75 0 0 1-1.74 1.65H5.89a1.75 1.75 0 0 1-1.74-1.65L3.25 4.5h-.5a.75.75 0 0 1 0-1.5zm1.5 0h1.5V2.25H7.25zm-1 2.5a.5.5 0 0 0-.498.55l.5 5a.5.5 0 0 0 .996-.1l-.5-5a.5.5 0 0 0-.498-.45zm3.5 0a.5.5 0 0 0-.498.45l-.5 5a.5.5 0 0 0 .996.1l.5-5A.5.5 0 0 0 9.75 5.5z"/></svg></button>
+        </div>`;
+        }).join('');
+    }
+
+    const valLabel = archValuesLabel(values);
+    const div = document.createElement('div');
+    div.className = 'arch-signal';
+    div.innerHTML = `
+        <input class="sig-name arch-flag-name" list="arch-signal-names" value="${name}" placeholder="Name">
+        <input class="bitStart arch-signal-input" type="number" min="0" value="${bitStart}">
+        <input class="sigWidth arch-signal-input" type="number" min="1" value="${width}">
+        <input class="arch-values-hidden" type="hidden" value="${values}">
+        <button class="values-toggle" onclick="archToggleValuesPanel(this.closest('.arch-signal'))">${valLabel}</button>
+        <button class="arch-del-btn" title="Remove signal" onclick="archRemoveSignal(this.closest('.arch-signal'))"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 3V2.25h4.5V3h3a.75.75 0 0 1 0 1.5h-.5l-.9 8.1a1.75 1.75 0 0 1-1.74 1.65H5.89a1.75 1.75 0 0 1-1.74-1.65L3.25 4.5h-.5a.75.75 0 0 1 0-1.5zm1.5 0h1.5V2.25H7.25zm-1 2.5a.5.5 0 0 0-.498.55l.5 5a.5.5 0 0 0 .996-.1l-.5-5a.5.5 0 0 0-.498-.45zm3.5 0a.5.5 0 0 0-.498.45l-.5 5a.5.5 0 0 0 .996.1l.5-5A.5.5 0 0 0 9.75 5.5z"/></svg></button>
+        <div class="arch-values-panel" style="grid-column:1/-1">
+        <div class="arch-values-panel-hdr"><span>Name</span><span>Value</span><span></span></div>
+        <div class="arch-values-rows">${buildValueRows(values)}</div>
+        <button class="arch-btn" style="margin-top:5px;" onclick="archAddInlineValueRow(this.closest('.arch-signal'))">+ Add value</button>
+        <div class="arch-values-panel-err"></div>
+        </div>
+    `;
+    document.getElementById('signals-container').appendChild(div);
+    div.querySelector('.bitStart').addEventListener('change', () => { 
+        archSortSignals(); if (!_archSuppressDiagram) archSyncConfig(); 
+    });
+    const wi = div.querySelector('.sigWidth');
+    wi.dataset.last = wi.value;
+    wi.addEventListener('change', () => {
+        if (_archSuppressDiagram) { 
+            wi.dataset.last = wi.value; 
+            return; 
+        }
+        const ws     = parseInt(document.getElementById('wordSize').value) || 32;
+        const newW   = parseInt(wi.value) || 1;
+        const oldW   = parseInt(wi.dataset.last) || newW;
+        const aWidth = parseInt(document.getElementById('actionWidth').value) || 4;
+        const naOver = document.getElementById('naOverlapped').checked;
+        const naW    = parseInt(document.getElementById('naWidth').textContent) || 12;
+        let sigBits  = 0;
+        document.querySelectorAll('.arch-signal').forEach(d => {
+            if (d === div) sigBits += newW;
+            else { const w = parseInt(d.querySelector('.sigWidth').value); if (!isNaN(w)) sigBits += w; }
+        });
+        const total = aWidth + sigBits + (naOver ? 0 : naW);
+        if (total > ws) {
+            const naStr = naOver ? '' : `+NEXT_ADDRESS(${naW})`;
+            archShowStatus('conflictSummary', `⚠ Cannot set width to ${newW}: ACTION(${aWidth})+Signals(${sigBits})${naStr}=${total} > Word size(${ws})`, 'err');
+            wi.value = oldW;
+            return;
+        }
+        wi.dataset.last = newW;
+        archRepackSignals(div); archSyncConfig();
+    });
+    div.querySelector('.sig-name').addEventListener('input', () => { if (!_archSuppressDiagram) archSyncConfig(); });
+    archSortSignals();
+}
+
+function archValuesLabel(str) {
+    if (!str) return '— no values —';
+    const parts = str.split(',').filter(p => p.includes('='));
+    return parts.length ? parts.map(p => p.trim()).join('  |  ') : '— no values —';
+}
+
+function archToggleValuesPanel(signalDiv) {
+    signalDiv.querySelector('.arch-values-panel').classList.toggle('open');
+}
+
+function archAddInlineValueRow(signalDiv) {
+    const rows = signalDiv.querySelectorAll('.vValue');
+    let nextVal = 0;
+    if (rows.length) { 
+        const last = parseInt(rows[rows.length-1].value); 
+        if (!isNaN(last)) nextVal = last + 1; 
+    }
+    const row = document.createElement('div');
+    row.className = 'arch-value-row';
+    row.innerHTML = `
+        <input class="vName arch-signal-input" value="" placeholder="Name">
+        <input class="vValue arch-signal-input" type="text" value="${nextVal}" placeholder="0 or 1x0">
+        <button class="arch-del-btn" title="Remove value" onclick="archRemoveValueRow(this)"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 3V2.25h4.5V3h3a.75.75 0 0 1 0 1.5h-.5l-.9 8.1a1.75 1.75 0 0 1-1.74 1.65H5.89a1.75 1.75 0 0 1-1.74-1.65L3.25 4.5h-.5a.75.75 0 0 1 0-1.5zm1.5 0h1.5V2.25H7.25zm-1 2.5a.5.5 0 0 0-.498.55l.5 5a.5.5 0 0 0 .996-.1l-.5-5a.5.5 0 0 0-.498-.45zm3.5 0a.5.5 0 0 0-.498.45l-.5 5a.5.5 0 0 0 .996.1l.5-5A.5.5 0 0 0 9.75 5.5z"/></svg></button>
+    `;
+    signalDiv.querySelector('.arch-values-rows').appendChild(row);
+    row.querySelector('.vName').focus();
+    archSyncValuesFromPanel(signalDiv);
+}
+
+function archRemoveValueRow(btn) {
+    const signalDiv = btn.closest('.arch-signal');
+    btn.closest('.arch-value-row').remove();
+    archSyncValuesFromPanel(signalDiv);
+}
+
+function archRemoveSignal(signalDiv) {
+    signalDiv.remove();
+    archSortSignals();
+    archSyncConfig();
+}
+
+function archSyncValuesFromPanel(signalDiv) {
+    const rows   = signalDiv.querySelectorAll('.arch-value-row');
+    const parts  = [], names = [], errors = [];
+    rows.forEach(row => {
+        const k = row.querySelector('.vName').value.trim();
+        const raw = row.querySelector('.vValue').value.trim();
+        if (!k) return;
+        if (names.includes(k)) errors.push('Duplicate: ' + k); else names.push(k);
+        if (raw !== '') {
+        // accept integer OR binary/don't-care string (e.g. "1x0", "01", "0b11")
+        const isPattern = /^[01x]+$/i.test(raw);
+        const numVal = parseInt(raw);
+        const finalVal = isPattern && isNaN(numVal) ? raw : (!isNaN(numVal) ? numVal : raw);
+        parts.push(k + '=' + finalVal);
+        }
+    });
+    const errBox = signalDiv.querySelector('.arch-values-panel-err');
+    if (errors.length) { 
+        errBox.textContent = errors.join(' | '); 
+        errBox.style.display = 'block'; 
+    }
+    else { 
+        errBox.style.display = 'none'; 
+    }
+
+    // sort numerics first, then strings
+    parts.sort((a, b) => {
+        const va = a.split('=')[1], vb = b.split('=')[1];
+        const na = parseInt(va), nb = parseInt(vb);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return String(va).localeCompare(String(vb));
+    });
+    const str = parts.join(',');
+    signalDiv.querySelector('.arch-values-hidden').value = str;
+    signalDiv.querySelector('.values-toggle').textContent = archValuesLabel(str);
+    archSyncConfig();
+}
+
+function archUpdateNaWidth() {
+    const ab = parseInt(document.getElementById('addrBits').value) || 12;
+    document.getElementById('naWidth').textContent = ab;
+}
+
+function archUpdateNaBitStart() {
+    const aWidth = parseInt(document.getElementById('actionWidth').value) || 4;
+    const naOver = document.getElementById('naOverlapped').checked;
+    let naStart;
+    if (naOver) {
+        naStart = aWidth;
+    } else {
+        let lastBit = aWidth - 1;
+        document.querySelectorAll('.arch-signal').forEach(div => {
+        const bs = parseInt(div.querySelector('.bitStart').value);
+        const w  = parseInt(div.querySelector('.sigWidth').value);
+        if (!isNaN(bs) && !isNaN(w)) lastBit = Math.max(lastBit, bs + w - 1);
+        });
+        naStart = lastBit + 1;
+    }
+    document.getElementById('naBitStart').textContent = naStart;
+}
+
+// ── Conflict check ────────────────────────────────────
+function archCheckConflicts() {
+    archGenerateJSON();
+    const cfg     = JSON.parse(document.getElementById('arch-output').value);
+    const naOver  = document.getElementById('naOverlapped').checked;
+    const naStart = parseInt(document.getElementById('naBitStart').textContent) || 4;
+    const naW2    = parseInt(document.getElementById('naWidth').textContent) || 12;
+    const aWidth  = parseInt(document.getElementById('actionWidth').value) || 4;
+    const used    = {}, messages = [];
+
+    for (let i = 0; i < aWidth; i++) used[i] = 'ACTION';
+    if (!naOver) {
+        for (let i = naStart; i < naStart + naW2; i++) {
+            if (used[i]) messages.push(`✕ Bit <b>${i}</b>: ${used[i]} vs NEXT_ADDRESS`);
+            else used[i] = 'NEXT_ADDRESS';
+        }
+    }
+
+    document.querySelectorAll('.arch-signal').forEach(div => {
+        // 1. Limpa o conflito já no início do loop
+        div.classList.remove('conflict');
+
+        const name = div.querySelector('.sig-name').value || '?';
+        const bs   = parseInt(div.querySelector('.bitStart').value);
+        const w    = parseInt(div.querySelector('.sigWidth').value);
+
+        if (isNaN(bs) || isNaN(w)) return;
+
+        // 2. Validação bit a bit
+        let hasConflict = false;
+            for (let i = bs; i < bs + w; i++) {
+                if (used[i]) {
+                    if (!hasConflict) { // Adiciona a mensagem apenas uma vez por sinal
+                        messages.push(`✕ Conflito em <b>${name}</b> com <b>${used[i]}</b>`);
+                        hasConflict = true;
+                    }
+                    div.classList.add('conflict');
+                } else {
+                    used[i] = name;
+                }
+            }
+    });
+
+    const box = document.getElementById('conflictSummary');
+    if (!messages.length) {
+        box.innerHTML = '✓ No conflicts found.'; box.className = 'arch-status ok';
+    } else {
+        box.innerHTML = messages.join('<br>'); box.className = 'arch-status err';
+    }
+    _archAutoHide('conflictSummary', messages.length ? 7000 : 4000);
+}
+
+function archShowStatus(id, msg, type) {
+    const box = document.getElementById(id);
+    box.innerHTML = msg; box.className = 'arch-status ' + type;
+    clearTimeout(box._t);
+    box._t = setTimeout(() => { box.className = 'arch-status'; box.innerHTML = ''; }, type === 'err' ? 7000 : 4000);
+}
+
+// also auto-dismiss conflict summary when called from checkConflicts
+function _archAutoHide(id, delay) {
+    const box = document.getElementById(id);
+    clearTimeout(box._t);
+    box._t = setTimeout(() => { box.className = 'arch-status'; box.innerHTML = ''; }, delay);
+}
+
+// ── Diagram ───────────────────────────────────────────
+function archDiagColor(name) {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return `hsl(${Math.abs(hash) % 360},60%,45%)`;
+}
+
+function archDrawDiagram() {
+    if (_archSuppressDiagram) return;
+    const area = document.getElementById('diagramArea');
+    if (!area) return;
+    area.innerHTML = '';
+
+    const MIN_SCALE = 16, IDEAL_SCALE = 32, HEIGHT = 46, BORDER = 2;
+    const naOver  = document.getElementById('naOverlapped').checked;
+    const naStart = parseInt(document.getElementById('naBitStart').textContent) || 4;
+    const naW3    = parseInt(document.getElementById('naWidth').textContent)    || 12;
+    const aWidth3 = parseInt(document.getElementById('actionWidth').value)      || 4;
+    const nEnd    = naStart + naW3 - 1;
+    const aEnd    = aWidth3 - 1;
+
+    let maxBit = Math.max(aEnd, nEnd);
+
+    document.querySelectorAll('.arch-signal').forEach(div => {
+        const bs = parseInt(div.querySelector('.bitStart').value);
+        const w  = parseInt(div.querySelector('.sigWidth').value);
+        if (!isNaN(bs) && !isNaN(w)) maxBit = Math.max(maxBit, bs + w - 1);
+    });
+
+    const wordSizeBits = parseInt(document.getElementById('wordSize').value) || 32;
+    const totalBits = Math.max(maxBit + 1, wordSizeBits);
+    const available = area.parentElement ? area.parentElement.clientWidth - 32 : 600;
+    const fitScale  = Math.floor((available - 40) / (totalBits + 1));
+    const SCALE     = Math.min(IDEAL_SCALE, Math.max(MIN_SCALE, fitScale));
+    const OFFSET    = SCALE;
+    const innerW    = totalBits * SCALE + OFFSET + 40;
+
+    const inner = document.createElement('div');
+    inner.style.cssText = `position:relative;width:${innerW}px;height:220px;`;
+    area.style.height = '230px';
+    area.appendChild(inner);
+
+    // tick marks & bit numbers
+    const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+    const tickColor = isDark ? '#3a4560' : '#b8c0d8';
+    const labelColor = isDark ? '#6b7a9e' : '#5a6482';
+
+    for (let i = 0; i <= totalBits; i++) {
+        const tick = document.createElement('div');
+        tick.style.cssText = `position:absolute;left:${i*SCALE+OFFSET}px;top:38px;width:1px;height:8px;background:${tickColor}`;
+        inner.appendChild(tick);
+        if (i < totalBits) {
+            const lbl = document.createElement('div');
+            lbl.style.cssText = `position:absolute;left:${i*SCALE+OFFSET+SCALE/2-6}px;top:20px;font-size:${Math.max(7,SCALE*0.38)}px;color:${labelColor};font-family:var(--mono)`;
+            lbl.textContent = i;
+            inner.appendChild(lbl);
+        }
+    }
+
+    function createBlock(name, bStart, bEnd, y) {
+        const wBits  = bEnd - bStart + 1;
+        const block  = document.createElement('div');
+        block.className = 'arch-diagram-block';
+        block.style.left   = (bStart * SCALE + OFFSET) + 'px';
+        block.style.top    = y + 'px';
+        block.style.width  = (wBits * SCALE - BORDER) + 'px';
+        block.style.height = HEIGHT + 'px';
+
+        if (name === 'ACTION')       block.style.background = 'linear-gradient(135deg,#2d3561,#4f5faa)';
+        else if (name === 'NEXT_ADDRESS') block.style.background = 'linear-gradient(135deg,#1a4f6e,#2980b9)';
+        else block.style.background = archDiagColor(name);
+
+        const fs = Math.max(8, Math.min(11, SCALE * 0.42));
+        const range = bStart === bEnd ? `${bStart}` : `${bStart}..${bEnd}`;
+        block.innerHTML = `<div style="font-weight:700;font-size:${fs}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;padding:0 2px">${name}</div><div style="font-size:${Math.max(7,fs-1)}px;opacity:.8">${range}</div>`;
+        inner.appendChild(block);
+    }
+
+    createBlock('ACTION', 0, aEnd, 80);
+    document.querySelectorAll('.arch-signal').forEach(div => {
+        const name = div.querySelector('.sig-name').value;
+        const bs   = parseInt(div.querySelector('.bitStart').value);
+        const w    = parseInt(div.querySelector('.sigWidth').value);
+        if (!name || isNaN(bs) || isNaN(w)) return;
+        createBlock(name, bs, bs + w - 1, 80);
+    });
+    if (naOver) createBlock('NEXT_ADDRESS', naStart, nEnd, 148);
+    else        createBlock('NEXT_ADDRESS', naStart, nEnd, 80);
+}
+
+// ── FLAGS ────────────────────────────────────────────
+function archAddFlag(name='', desc='', bit='') {
+    const div = document.createElement('div');
+    div.style.cssText = 'display:grid;grid-template-columns:80px 1fr 50px 26px;gap:4px;align-items:center;padding:2px 0;';
+    div.innerHTML = `
+        <input class="arch-flag-name flag-name-inp" type="text" placeholder="e.g. Carry" value="${name}">
+        <input class="arch-flag-name flag-desc-inp" type="text" placeholder="Description" value="${desc}">
+        <input class="arch-signal-input flag-bit-input" type="number" min="0" value="${bit}" placeholder="bit"
+        style="width:100%;height:26px;padding:0 4px;border:1px solid var(--border);border-radius:4px;
+                font-family:var(--mono);font-size:11px;box-sizing:border-box;text-align:center;box-shadow:none;">
+        <button class="arch-del-btn" title="Remove flag" onclick="this.closest('div').remove();archSyncConfig();"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 3V2.25h4.5V3h3a.75.75 0 0 1 0 1.5h-.5l-.9 8.1a1.75 1.75 0 0 1-1.74 1.65H5.89a1.75 1.75 0 0 1-1.74-1.65L3.25 4.5h-.5a.75.75 0 0 1 0-1.5zm1.5 0h1.5V2.25H7.25zm-1 2.5a.5.5 0 0 0-.498.55l.5 5a.5.5 0 0 0 .996-.1l-.5-5a.5.5 0 0 0-.498-.45zm3.5 0a.5.5 0 0 0-.498.45l-.5 5a.5.5 0 0 0 .996.1l.5-5A.5.5 0 0 0 9.75 5.5z"/></svg></button>
+    `;
+    div.querySelectorAll('input').forEach(i => i.addEventListener('input', () => archSyncConfig()));
+    document.getElementById('flags-container').appendChild(div);
+}
+
+function archGetFlags() {
+    const flags = [];
+    document.querySelectorAll('#flags-container > div').forEach(div => {
+        const name = div.querySelector('.flag-name-inp')?.value.trim();
+        const desc = div.querySelector('.flag-desc-inp')?.value.trim();
+        const bit  = parseInt(div.querySelector('.flag-bit-input')?.value);
+        if (name && !isNaN(bit)) {
+        const entry = { name, bit };
+        if (desc) entry.description = desc;
+        flags.push(entry);
+        }
+    });
+    return flags.length ? flags : null;
+}
+
+function archLoadFlags(flagsData) {
+    document.getElementById('flags-container').innerHTML = '';
+    if (!flagsData) return;
+    if (Array.isArray(flagsData)) {
+        // [{name, bit, description}]
+        for (const f of flagsData) archAddFlag(f.name || '', f.description || '', f.bit ?? '');
+    } else {
+        // legacy object: {C: 0, Z: {bit:1, description:'...'}}
+        for (const [name, val] of Object.entries(flagsData)) {
+        if (typeof val === 'object' && val !== null)
+            archAddFlag(name, val.description || '', val.bit ?? '');
+        else
+            archAddFlag(name, '', val);
+        }
+    }
+}
+
+// ── Wire Architecture form events ────────────────────
+(function archInitEvents() {
+
+    const archEvents = () => {
+        const addrBitsEl    = document.getElementById('addrBits');
+        const actionWidthEl = document.getElementById('actionWidth');
+        const naOverEl      = document.getElementById('naOverlapped');
+        const sigContainer  = document.getElementById('signals-container');
+
+        if (!addrBitsEl) return;
+
+        addrBitsEl.addEventListener('change', () => { archUpdateNaWidth(); archUpdateNaBitStart(); archSyncConfig(); });
+        document.getElementById('wordSize').addEventListener('change', () => {
+            archUpdateNaBitStart();
+            archCheckBitBudget('Word size');
+            archSyncConfig();
+        });
+        const archToggleActionsCard = () => {
+            const aw = parseInt(actionWidthEl.value);
+            const card = actionWidthEl.closest('.acard');
+            // find actions card (sibling acard inside arch-left)
+            const actCard = document.querySelector('#actions-container')?.closest('.acard');
+            if (actCard) actCard.style.display = (aw === 0) ? 'none' : '';
+        };
+        archToggleActionsCard();
+        actionWidthEl.dataset.last = actionWidthEl.value;
+
+        actionWidthEl.addEventListener('change', () => {
+            const ws     = parseInt(document.getElementById('wordSize').value) || 32;
+            const newAW  = parseInt(actionWidthEl.value);
+            const oldAW  = parseInt(actionWidthEl.dataset.last) || 4;
+            const naOver = document.getElementById('naOverlapped').checked;
+            const naW    = parseInt(document.getElementById('naWidth').textContent) || 12;
+            let sigBits  = 0;
+            document.querySelectorAll('.arch-signal').forEach(d => { 
+                const w = parseInt(d.querySelector('.sigWidth').value); if (!isNaN(w)) sigBits += w; 
+            });
+            const total  = newAW + sigBits + (naOver ? 0 : naW);
+
+            // FIX 4: block reduction when existing action values exceed new capacity
+            if (newAW > 0 && newAW < oldAW) {
+                const maxAllowed = Math.pow(2, newAW) - 1;
+                const outOfRange = [];
+                document.querySelectorAll('.arch-action-row').forEach(row => {
+                    const name = row.querySelector('.actionName').textContent.trim();
+                    const val  = parseInt(row.querySelector('.actionValue').value);
+                    if (!isNaN(val) && val > maxAllowed) outOfRange.push(`"${name}"=${val}`);
+                });
+                if (outOfRange.length) {
+                    archShowStatus('actionError', `⚠ Cannot reduce Action width to ${newAW} bit(s): values ${outOfRange.join(', ')} exceed max ${maxAllowed}`, 'err');
+                    actionWidthEl.value = oldAW;
+                    return;
+                }
+            }
+
+            if (total > ws) {
+                const naStr2 = naOver ? '' : `+NEXT_ADDRESS(${naW})`;
+                archShowStatus('conflictSummary', `⚠ Cannot set Action width to ${newAW}: ACTION(${newAW})+Signals(${sigBits})${naStr2}= ${total} > Word size(${ws})`, 'err');
+                actionWidthEl.value = oldAW;
+                return;
+            }
+            actionWidthEl.dataset.last = newAW;
+            archToggleActionsCard();
+            archUpdateActionHeader(); 
+            archUpdateNaBitStart(); 
+            archSyncConfig();
+        });
+
+        naOverEl.addEventListener('change', () => {
+            // tentatively update NaBitStart to reflect new state, then check budget
+            archUpdateNaBitStart();
+            if (!archCheckBitBudget('Overlapped toggle')) {
+                // revert — unchecking would exceed budget, block it
+                naOverEl.checked = !naOverEl.checked;
+                archUpdateNaBitStart();
+                return;
+            }
+            archSyncConfig();
+        });
+
+        sigContainer.addEventListener('input', e => {
+            const panel = e.target.closest('.arch-values-panel');
+            if (panel) archSyncValuesFromPanel(panel.closest('.arch-signal'));
+        });
+
+        window.addEventListener('resize', () => archDrawDiagram());
+    };
+
+    // wrap static ROM inputs once DOM is ready
+    const wrapStatic = () => {
+        ['addrBits','wordSize','actionWidth'].forEach(id => {
+        const el = document.getElementById(id);
+        });
+    };
+    if (document.readyState === 'loading') 
+        document.addEventListener('DOMContentLoaded', () => { 
+            archEvents(); 
+            wrapStatic(); 
+        });
+    else { 
+        archEvents(); 
+        wrapStatic(); }
+})();
+
+// ── THEME: system preference ──────────────────────
+const applyTheme = (theme) => {
+    currentTheme = theme;
+    document.documentElement.setAttribute('data-theme', theme);
+    iconMoon.style.display = (theme === 'dark')  ? 'block' : 'none';
+    iconSun.style.display  = (theme === 'light') ? 'block' : 'none';
+};
+
+(function initTheme() {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    applyTheme(mq.matches ? 'dark' : 'light');
+
+    // Follow system changes in real time
+    mq.addEventListener('change', e => {
+        applyTheme(e.matches ? 'dark' : 'light');
+        archDrawDiagram(); // redraw diagram so colours update
+    });
+})();
+
+render();
+
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        const target = tab.dataset.tab;
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('panel-' + target).classList.add('active');
+    });
+});
